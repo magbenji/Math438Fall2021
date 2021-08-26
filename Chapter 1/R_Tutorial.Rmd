@@ -1,0 +1,77 @@
+---
+title: "A Super Brief Tutorial of R, Rstudio, R markdown, and Python"
+output: 
+  html_notebook:
+    toc: true
+---
+
+
+# Writing and equations
+
+Textual input is just like any other word processor. If you wish to have specific formats, you can check out the R markdown cheat sheet that  is available in the `Help -> Cheat Sheets` menu of R Studio.
+
+
+Within an R markdown file, you can choose the type of output: HTML, PDF or Word. If you choose the `output: html_notebook`, you will get the option of previewing the document (which I find quite useful).
+
+
+R markdown is *very* aware of spacing in the document. For example, if you are trying to write a header do not put a space between the "#" and the section name, it will not be recognized as a section.
+
+#Not recognized even though RStudio colors the text like a header...
+
+The same goes for options in the YAML header at the top of the document, lists, tables, etc. These environments all rely on proper indentation to get the desired effects.
+
+For writing equations, I recommend using standard  LaTeX commands such as `$\alpha^2 + \beta = \frac{1}{2}$` gives $\alpha^2 + \beta = \frac{1}{2}$. If you wish to have the equation be on its own line (instead of in-line) use `$$\alpha^2 + \beta = \frac{1}{2}$$` which gives $$\alpha^2 + \beta = \frac{1}{2}.$$
+
+Lastly, you can do in-line R evaluation if you want. You do this by typing something like $e^5 =$ `r exp(5)`. This comes in handy if you want to pull values from stored objects into your writing.
+
+Again, if you need help with something in R markdown, I highly recommend looking at the cheat sheet; it will help you do most tasks.
+
+
+# Basic R input
+
+The following shows just some basic evaluation of some R code in an R markdown file. The evaluation environment begins and ends with 3 backward ticks "\`". After the first 3 backward ticks, you have something like `{r BLOCK NAME, option1 = ..., option 2 = ..., ...}`  Options can specify, e.g., whether you want the code to show up (`include = FALSE or TRUE`) and many other formatting preferences.
+
+Here is a super basic example of doing some R evaluation:
+
+```{r baby block}
+1 + 1
+sin(2*pi)
+runif(10)
+x <- rnorm(100)
+y <- 3*x + 5 + runif(100, -1, 1)
+plot(x,y)
+```
+
+
+
+# Python in R markdown
+
+Using Python in R requires the installation of the `reticulate` library. 
+
+```{r setup, include=FALSE}
+library(reticulate)
+```
+
+Once that package is installed and loaded, you can make python calls by specifying `{python ...}` after the intial 3 
+
+```{python load libraries}
+import matplotlib.pyplot as plt
+import numpy as np
+```
+
+## Including Plots (sub-header example)
+
+Here I continue using the Python interpreter to create a plot:
+
+```{python sine plot}
+t = np.arange(0.0, 2.0, 0.01)
+s = 1 + np.sin(2*np.pi*t)
+
+plt.plot(t, s)
+plt.xlabel('time (s)')
+plt.ylabel('voltage (mv)')
+plt.grid(True)
+#plt.savefig("test.png")
+plt.show()
+```
+
