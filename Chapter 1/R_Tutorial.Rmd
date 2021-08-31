@@ -1,8 +1,9 @@
 ---
 title: "A Super Brief Tutorial of R, Rstudio, R markdown, and Python"
-output: 
+author: "Me"
+output:
   html_notebook:
-    toc: true
+    toc: yes
 ---
 
 
@@ -20,7 +21,7 @@ R markdown is *very* aware of spacing in the document. For example, if you are t
 
 The same goes for options in the YAML header at the top of the document, lists, tables, etc. These environments all rely on proper indentation to get the desired effects.
 
-For writing equations, I recommend using standard  LaTeX commands such as `$\alpha^2 + \beta = \frac{1}{2}$` gives $\alpha^2 + \beta = \frac{1}{2}$. If you wish to have the equation be on its own line (instead of in-line) use `$$\alpha^2 + \beta = \frac{1}{2}$$` which gives $$\alpha^2 + \beta = \frac{1}{2}.$$
+For writing equations, I recommend using standard LaTeX commands such as `$\alpha^2 + \beta = \frac{1}{2}$` gives $\alpha^2 + \beta = \frac{1}{2}$. If you wish to have the equation be on its own line (instead of in-line) use `$$\alpha^2 + \beta = \frac{1}{2}$$` which gives $$\alpha^2 + \beta = \frac{1}{2}.$$
 
 Lastly, you can do in-line R evaluation if you want. You do this by typing something like $e^5 =$ `r exp(5)`. This comes in handy if you want to pull values from stored objects into your writing.
 
@@ -52,7 +53,7 @@ Using Python in R requires the installation of the `reticulate` library.
 library(reticulate)
 ```
 
-Once that package is installed and loaded, you can make python calls by specifying `{python ...}` after the intial 3 
+Once that package is installed and loaded, you can make python calls by specifying `{python ...}` after the initial 3 
 
 ```{python load libraries}
 import matplotlib.pyplot as plt
