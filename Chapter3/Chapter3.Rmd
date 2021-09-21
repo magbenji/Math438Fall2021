@@ -1,0 +1,236 @@
+---
+title: "Chapter 3"
+author: "Ben Ridenhour"
+output: 
+  html_notebook:
+    toc: true
+---
+
+## Model Fitting Overview
+
+The primary information given in chapter 3 relates to fitting models and different criteria that can be used for fitting.
+
+Sometimes, it is possible to get closed form solutions for particular models in conjunction with particular objective functions. The classic example would be least squares regression that couples a linear model with the minimization of the squared error (residual) terms.
+
+Let's use some of the criteria mentioned in the book (and a couple of others) to try fitting some data.
+
+## The Criteria
+
+First, let's create functions that will calculate our criteria of interest. The first of these is the Chebyshev criterion; this is estimate our model $\hat{\theta}_{C}$:
+
+$$ \hat{\theta}_{C} = \underset{\theta}{\mbox{argmin}}\left[\max\left(\left|y_i - f(x_i;\theta)\right|\right)\right] $$
+In other words, the Chebyshev criterion choose a model by minimizing the maximum absolute deviation.  I will code this as
+
+```{r Chebyshev}
+chebyshev <- function(y, yhat) max(abs(y - yhat))
+```
+
+The next criteria will be the closely related mean absolute deviation and the median absolute deviation. These will estimate our model as
+
+$$ \hat{\theta}_{MAD} = \underset{\theta}{\mbox{argmin}}\left[\frac{1}{m}\sum_i^m\left(\left|y_i - f(x_i;\theta)\right|\right)\right] \qquad \mbox{and}\\
+\hat{\theta}_{MED} = \underset{\theta}{\mbox{argmin}}\left[\mbox{median}\left(\left|y_i - f(x_i;\theta)\right|\right)\right], $$
+
+respectively. The code for these two measures is given by
+
+```{r AbsDev}
+meanAD <- function(y, yhat) mean(abs(y - yhat))
+medianAD <- function(y, yhat) median(abs(y - yhat))
+```
+
+
+The final two measures we will look at today are the maximum likelihood and least squares criteria. Maximum likelihood takes many different forms depending on the model; for the purpose of linear regression the likelihood model is $\epsilon_i \sim \mathcal{N}(0,\sigma_i)$, i.e., that the errors are normally distributed about the predicted mean. These two measures yield solutions according to
+
+$$ \hat{\theta}_{LS} = \underset{\theta}{\mbox{argmin}}\left[\frac{1}{m}\sum_i^m\left(\left|y_i - f(x_i;\theta)\right|\right)^2\right] \qquad \mbox{and}\\
+\hat{\theta}_{LL} = \underset{\theta}{\mbox{argmax}}\left[\sum^m_i\ln\phi\left(y;f(x_i;\theta)\right)\right] $$
+
+where $\phi\left(y;f(x_i;\theta)\right)$ is the probability of $y$ given $y - f(x_i;\theta) = \epsilon$. Note that we are looking to *maximize* the likelihood. (Why?) Here is the code for these measures:
+
+```{r}
+leastSq <- function(y, yhat) mean(abs(y - yhat)^2)
+llnorm <- function(y, yhat) sum(dnorm(y, yhat, log = T)) #normal distribution, assumes fixed variance, N(yhat, 1)
+```
+
+
+## Test Out The Criteria
+
+Now that we've defined our criteria in R, let's use them on some simulated data to make sure they are performing as expected. I will simulate data under a known model. Specifically, I will use the simple linear model $y = 3x+5$. Because we wish to fit "real" data, we need to add some noise. Here I do two things: 1) I add some basic random noise to 100 data points. 2) For 10 of the points, I augment the error to give some outliers.
+
+```{r SimData}
+set.seed(5432)
+x <- runif(100, -10, 10)
+y <- 3*x + 5 + rnorm(100, sd = 5)
+### give a few points with larger errors
+largeError <- sample(1:100,10)
+y[largeError] <- y[largeError] + 3*(y[largeError] - 3*x[largeError] - 5)
+plot(x,y)
+### We know what the true model is, so let's use that 
+### for comparison at the moment:
+yhat <- 3*x+5
+points(x[order(x)],yhat[order(x)],col="red",type="l",lty=2)
+```
+
+The simulated data look as we would expect them. Let's see what values our criteria return using the true model:
+
+```{r TruthCheck}
+###try our functions
+chebyshev(y, yhat)
+meanAD(y, yhat)
+leastSq(y, yhat)
+medianAD(y, yhat)
+llnorm(y, yhat)
+```
+
+Let's change the parameters on the line a bit. What do we expect our measures to do? Let's verify that expectation.
+
+```{r}
+###Let's try a slightly different model and check the functions
+###again.
+yhat <- 2.75*x+4.9
+plot(x,y)
+points(x[order(x)],yhat[order(x)],col="blue",type="l",lty=2)
+
+chebyshev(y, yhat)
+meanAD(y, yhat)
+leastSq(y, yhat)
+medianAD(y, yhat)
+llnorm(y, yhat)
+```
+
+## Finding Parameters via Optimization
+
+### The optim() function
+
+In order to find appropriate parameters, we will use R's built in function `optim`. Look at the help file for `optim` first:
+
+```{r optim}
+? optim
+```
+
+By looking at the help file, we see that `optim` requires:
+
+- initial parameters
+- a function to be optimized
+  + the first argument to the function must be the parameter vector
+  + the function must return a scalar.
+- optionally, we can ask for maximization
+- extra arguments to the optimization function **must match exactly**
+
+Let's create our optimization (objective) function. The function will have four arguments:
+
+- the parameter vector
+  + the vector needs 2 elements named `slope` and `intercept`
+- the $x$ values from our data
+- the $y$ values from our data
+- the criteria to use for optimization 
+  + the default will be the Chebyshev measure
+  
+Here is an example of this function:  
+
+```{r ObjectiveFunction}
+objectiveFn <- function(x, xvals, yvals, dist = "chebyshev"){
+  with(as.list(x),{
+    yhat <- slope*xvals + intercept #calculate the line give a set of parameters
+    eval(call(dist, yvals, yhat)) #use the distance function specified
+  })
+}
+```
+
+Next, we need to have some initial parameters. Initial parameters can come from many sources (e.g., previous research, known constraints). Sometimes you might not be able to make a reasonable guess... What is a logical guess for our random data to which we wish to fit a line?
+
+My suggestion is to just grab two points at random from our data and calculate the line formed by them.
+
+```{r}
+set.seed(9087)
+useMe <- sample(1:100,2)
+
+slope <- diff(y[useMe])/diff(x[useMe])
+intercept <- y[useMe[1]] - slope*x[useMe[1]]
+
+guess <- c("intercept"=intercept, "slope"=slope)
+guess
+```
+
+Because we actually know our values (intercept = 5, slope = 3), we can see our guess is a reasonable starting point. Guesses like these are sometimes called "naive estimates," i.e., estimates that will be refined via some algorithm.
+
+Let's just verify that our objective function works with our guess before attempting optimization:
+
+```{r TestObj}
+objectiveFn(guess,x,y)
+objectiveFn(guess,x,y, dist="leastSq")
+```
+
+Looks good! 
+
+### Finding Our Parameters
+
+Okay, now that everything seems to be ready, let's actually use `optim` to get answers for each of the criteria we programmed in above. Note how maximization is done for the likelihood criteria by using the `control` option for `optim`. I've plotted the results after doing the fitting. 
+
+```{r}
+#### Note that ... arguments, must match EXACTLY.
+ChebyFit <- optim(guess, objectiveFn, xvals = x, yvals = y)
+MeanADFit <- optim(guess, objectiveFn, xvals = x, yvals = y, dist = "meanAD")
+LSQFit <- optim(guess, objectiveFn, xvals = x, yvals = y, dist = "leastSq")
+MedianADFit <- optim(guess, objectiveFn, xvals = x, yvals = y, dist = "medianAD")
+
+### We want to MAXIMIZE log likelihood! Use the control() argument.
+LLFit <- optim(guess, objectiveFn, xvals = x, yvals = y, dist = "llnorm", control = list(fnscale = -1))
+
+plot(x,y)
+abline(LLFit$par, col = "red")
+abline(ChebyFit$par, col = "blue")
+abline(LSQFit$par, col = "green", lty=2)
+abline(MeanADFit$par, col = "black", lty = 3)
+abline(MedianADFit$par, col = "orange")
+legend(-10, 40, c("Log Lik", "Cheby", "Least Sq", "Mean AD", "Median AD"), 
+       col = c("red", "blue", "green", "black", "orange"), lty = c(1,1,2,3,1), pch = NA,
+       title = "Criterion")
+title("Comparing Fits with Differing Optimality Criteria")
+```
+
+Two things to notice in the above. One is just to see that `optim` returns (by default) a list of five elements:
+ 
+- `par` has the parameter values
+- `value` has the last value returned by the objective function
+- `counts` tell you how many step the algorithm took
+- `convergence` is 0 if the algorithm converged on a solution; it is 1 if it did not
+- `message` has any messages relevant to the fitting
+
+Typically, we care about convergence and the parameter estimates. For some applications, you may care about things such as the Hessian matrix, which must be requested. 
+
+Because we know the true parameters from our simulated data, we have the luxury or assessing which method performed the best. We can do this by calculating the distance between our points and the "truth" in model space. Let's see which one worked best:
+
+
+```{r Performance}
+dMat <- data.frame("Criteria" = c("Chebysev", "Mean Absolute Deviation", "Least Squares",
+                                       "Median Absolute Deviation", "Maximum Likelihood"),
+           "Distance" = c((t(ChebyFit$par) %*% c(3,5))^0.5, (t(MeanADFit$par) %*% c(3,5))^0.5,
+                          (t(LSQFit$par) %*% c(3,5))^0.5, (t(MedianADFit$par) %*% c(3,5))^0.5,
+                          (t(LLFit$par) %*% c(3,5))^0.5))
+
+dMat[order(dMat$Distance),]
+```
+
+With the random seeds that were used, we see that the median absolute deviation performed the best. Does it look like it in the plot above? Does this mean we have to use the method of fitting?
+
+## Examining Optimization Algorithms
+
+Try the following code to see the value of our objective function for different methods available in `optim` and usable for our problem:
+
+```{r algorithms1}
+objFns <- c("chebyshev","leastSq","llnorm","meanAD","medianAD")
+algs <- c("Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN")
+vals <- matrix(NA, ncol = length(objFns), nrow = length(algs))
+colnames(vals) <- objFns
+rownames(vals) <- algs
+  
+for(i in 1:length(objFns)){
+  clist <- if(objFns[i] == "llnorm") list(fnscale = -1) else list()
+  for(j in 1:length(algs)) vals[j,i]<-optim(guess, objectiveFn, xvals = x, yvals = y, 
+                                            dist = objFns[i], method = algs[j], control = clist)$value
+}
+
+vals
+
+```
+
+Which algorithm performed the best? Which one performed the worst? It is worthwhile to note that the simulated annealing algorithm (`SANN`) uses randomization and thus will return different results with every run (hopefully not very different). There are certain situations where simulated annealing may be your best option. Sometimes, best estimates can achieved by running combinations algorithms (e.g., the first stage might use `BFGS` and the second stage could use `Nelder-Mead`). 
