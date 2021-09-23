@@ -25,6 +25,14 @@ In other words, the Chebyshev criterion choose a model by minimizing the maximum
 chebyshev <- function(y, yhat) max(abs(y - yhat))
 ```
 
+```{python Chebyshev Py}
+import numpy as np
+
+def chebyshev(y, yhat): 
+  return(np.max(np.abs(y - yhat)))
+
+```
+
 The next criteria will be the closely related mean absolute deviation and the median absolute deviation. These will estimate our model as
 
 $$ \hat{\theta}_{MAD} = \underset{\theta}{\mbox{argmin}}\left[\frac{1}{m}\sum_i^m\left(\left|y_i - f(x_i;\theta)\right|\right)\right] \qquad \mbox{and}\\
@@ -38,6 +46,15 @@ medianAD <- function(y, yhat) median(abs(y - yhat))
 ```
 
 
+```{python AbsDev Py}
+def meanAD(y, yhat):
+  return(np.mean(np.abs(y - yhat)))
+  
+def medianAD(y, yhat):
+  return(np.median(np.abs(y - yhat)))
+
+```
+
 The final two measures we will look at today are the maximum likelihood and least squares criteria. Maximum likelihood takes many different forms depending on the model; for the purpose of linear regression the likelihood model is $\epsilon_i \sim \mathcal{N}(0,\sigma_i)$, i.e., that the errors are normally distributed about the predicted mean. These two measures yield solutions according to
 
 $$ \hat{\theta}_{LS} = \underset{\theta}{\mbox{argmin}}\left[\frac{1}{m}\sum_i^m\left(\left|y_i - f(x_i;\theta)\right|\right)^2\right] \qquad \mbox{and}\\
@@ -50,10 +67,20 @@ leastSq <- function(y, yhat) mean(abs(y - yhat)^2)
 llnorm <- function(y, yhat) sum(dnorm(y, yhat, log = T)) #normal distribution, assumes fixed variance, N(yhat, 1)
 ```
 
+```{python LeastSq Py}
+import scipy.stats as stats
+
+def leastSq(y, yhat):
+  return(np.mean((y-yhat)**2))
+
+def llnorm(y, yhat):
+  return(np.sum(stats.norm.logpdf(yhat,y)))
+```
+
 
 ## Test Out The Criteria
 
-Now that we've defined our criteria in R, let's use them on some simulated data to make sure they are performing as expected. I will simulate data under a known model. Specifically, I will use the simple linear model $y = 3x+5$. Because we wish to fit "real" data, we need to add some noise. Here I do two things: 1) I add some basic random noise to 100 data points. 2) For 10 of the points, I augment the error to give some outliers.
+Now that we've defined our criteria in R and Python, let's use them on some simulated data to make sure they are performing as expected. I will simulate data under a known model. Specifically, I will use the simple linear model $y = 3x+5$. Because we wish to fit "real" data, we need to add some noise. Here I do two things: 1) I add some basic random noise to 100 data points. 2) For 10 of the points, I augment the error to give some outliers.
 
 ```{r SimData}
 set.seed(5432)
@@ -80,7 +107,23 @@ medianAD(y, yhat)
 llnorm(y, yhat)
 ```
 
-Let's change the parameters on the line a bit. What do we expect our measures to do? Let's verify that expectation.
+Verify that Python is giving the same answers:
+
+```{python Truth Py}
+
+y = np.asarray(r.y)
+yhat = np.asarray(r.yhat)
+
+chebyshev(y, yhat)
+meanAD(y, yhat)
+leastSq(y, yhat)
+medianAD(y, yhat)
+llnorm(y, yhat)
+
+```
+
+
+Perfect!!! Let's change the parameters on the line a bit. What do we expect our measures to do? Let's verify that expectation.
 
 ```{r}
 ###Let's try a slightly different model and check the functions
@@ -98,7 +141,7 @@ llnorm(y, yhat)
 
 ## Finding Parameters via Optimization
 
-### The optim() function
+### The optim() function in R
 
 In order to find appropriate parameters, we will use R's built in function `optim`. Look at the help file for `optim` first:
 
@@ -161,6 +204,25 @@ objectiveFn(guess,x,y, dist="leastSq")
 
 Looks good! 
 
+If we want to get the same type of results in Python as we did in R, we can use the `SciPy` function `minimize`. The syntax and methods are very similar. 
+
+```{python ObjectiveFunction Py}
+#note the addition of the "sign" variable here to switch to maximization in Python
+def objectiveFn(x, xvals, yvals, dist=chebyshev, sign = 1):
+  yhat = x[1]*xvals + x[0]
+  return(sign*dist(yvals, yhat))
+  
+guess = np.array([r.intercept, r.slope])
+
+x = np.asarray(r.x)
+y = np.asarray(r.y)
+
+objectiveFn(guess, x, y)
+objectiveFn(guess, x, y, dist=leastSq)
+
+```
+
+
 ### Finding Our Parameters
 
 Okay, now that everything seems to be ready, let's actually use `optim` to get answers for each of the criteria we programmed in above. Note how maximization is done for the likelihood criteria by using the `control` option for `optim`. I've plotted the results after doing the fitting. 
@@ -196,6 +258,37 @@ Two things to notice in the above. One is just to see that `optim` returns (by d
 - `message` has any messages relevant to the fitting
 
 Typically, we care about convergence and the parameter estimates. For some applications, you may care about things such as the Hessian matrix, which must be requested. 
+
+Let's try the same exercise using Python's `minimize()` routine:
+
+```{python Minimize}
+import scipy.optimize as optim
+
+ChebyFit = optim.minimize(objectiveFn, guess, args=(x,y), method = 'Nelder-Mead')
+MeanADFit = optim.minimize(objectiveFn, guess, args=(x,y,meanAD), method = 'Nelder-Mead')
+LSQFit = optim.minimize(objectiveFn, guess, args=(x,y,leastSq), method = 'Nelder-Mead')
+MedianADFit = optim.minimize(objectiveFn, guess, args=(x,y,medianAD), method = 'Nelder-Mead')
+
+#note the use of the -1 being passed to the "sign" argument to switch to maximization
+LLFit = optim.minimize(objectiveFn, guess, args=(x,y,llnorm,-1), method = 'Nelder-Mead')
+
+###show estimates of R vs Python
+print('Chebyshev in R:', r.ChebyFit['par'])
+print('Chebyshev in Python:', ChebyFit.x)
+
+print('Mean Absolute Deviation in R:', r.MeanADFit['par'])
+print('Mean Absolute Deviation in Python:', MeanADFit.x)
+
+print('Least Squares in R:', r.LSQFit['par'])
+print('Least Squares in Python:', LSQFit.x)
+
+print('Median Absolute Deviation in R:', r.MedianADFit['par'])
+print('Median Absolute Deviation in Python:', MedianADFit.x)
+
+print('Maximum Likelihood in R:', r.LLFit['par'])
+print('Maximum Likelihood in Python:', LLFit.x)
+
+```
 
 Because we know the true parameters from our simulated data, we have the luxury or assessing which method performed the best. We can do this by calculating the distance between our points and the "truth" in model space. Let's see which one worked best:
 
