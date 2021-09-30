@@ -1,0 +1,210 @@
+---
+title: "Chapter 4"
+output: 
+  html_notebook:
+    toc: true
+---
+
+
+### Lagrangian Polynomial
+The first thing in Chapter 4 of substance is the use of Lagrangian polynomials to fit data points. Recall that for $n+1$ points, we can write a unique $n^{th}$ order polymial
+
+$$
+y = P(x) = y_0 L_0(x) + y_1 L_1(x) + ... + y_n L_n(x) 
+$$
+
+where 
+
+$$ L_k(x) = \frac{(x - x_0)(x - x_1)...(x - x_{k-1})(x - x_{k+1})...(x - x_n))}{(x_k - x_0)(x_k - x_1)...(x_k - x_{k-1})(x_k - x_{k+1})...(x_k - x_n))}.$$
+
+Let's use R to calculate $P(x)$ for some data set.
+
+```{r}
+
+#z is the point to evaluate at
+#x is the x data
+#y is the y data
+#i is index of the polynomial, i.e., L_k=L_i
+Lk <- function(z, x, y){
+  sub <- rep(NA, length(x))
+  for(i in seq_along(sub)) sub[i]  <- y[i]*prod(z - x[-i]) / prod(x[i] - x[-i])
+  sum(sub)
+}
+
+#v are values to evaluate the polynomial at
+#x and y are the data
+lagrange  <- function(v,x,y){
+  if(length(x) != length(y)) return(print("Error: x and y have different lengths."))
+  Px <- rep(NA, length(v))
+  v <- sort(v)
+  for(i in seq_along(v)) Px[i] <- Lk(v[i],x,y)
+  out <- matrix(c(v, Px), ncol = 2)
+  out
+}
+
+### Book Figure 4.12
+
+plot(lagrange(seq(-8,8,by=0.01), sample(-8:8), rep(0.01,17)), type="l", xlab="x", ylab="y", main = "High Order Approximation", lwd = 2, col="blue")
+points(-8:8, rep(0.01,17), col="red", cex=2, pch=20)
+plot(lagrange(seq(0,4,by=0.05), c(0, 2, 3, 4), c(7, 11, 28, 63)), type = "l", xlab="x", ylab="y", col="blue", lwd=2)
+points(c(0, 2, 3, 4), c(7, 11, 28, 63), col="red", cex=2, pch=20)
+```
+
+### Divided Difference Tables
+
+First, let's make some simple data for us to use with our divided differences. We'll take a look at a data set without noise, and then add some noise into it. We will use 20 data points. Our data will follow the polynomial
+
+$$y = 2 x^3 - 5 x^2 + x + 5$$
+
+```{r Data}
+# x data
+set.seed(19624)
+x <- sort(runif(20,-5,5)) #note the sorting
+y <- 2*x^3 - 5*x^2 + x + 5
+
+# y with (small) noise
+y.noise <- y + rnorm(20,0,0.2)
+```
+
+We will be using the `diff` command to find our divided differences. There are two options for the `diff` command: `lag` and `differences`. `lag` specifies how far apart the two elements are in a vector to be differenced. The `differences` argument specifies if you want first differences, second differences, etc. Let's use the the command to get our table for the clean table:
+
+```{r Using diff}
+first <- diff(y)/diff(x)
+second <- diff(first)/diff(x,lag=2)
+third <- diff(second)/diff(x,lag=3)
+fourth <- diff(third)/diff(x,lag=4)
+
+data.frame(first, second = c(0,second), third = c(0,0,third), fourth = c(0,0,0,fourth))
+```
+
+It's pretty clear that third divided difference is a constant, thus suggesting that a $3^{rd}$ order polynomial would fit our data. So our divided difference table gave us the correct answer. Let's do the same thing with the noisy data:
+
+```{r Noisy diff}
+first <- diff(y.noise)/diff(x)
+second <- diff(first)/diff(x,lag=2)
+third <- diff(second)/diff(x,lag=3)
+fourth <- diff(third)/diff(x,lag=4)
+
+data.frame(first, second = c(0,second), third = c(0,0,third), fourth = c(0,0,0,fourth))
+```
+At this point, we see that with our noisy data, we still have some fairly large differences. Let's take a few more divided differences and see if things get better:
+
+```{r More diff}
+fifth <- diff(fourth)/diff(x,lag=5)
+sixth<- diff(fifth)/diff(x,lag=6)
+seventh<- diff(sixth)/diff(x,lag=7)
+fourth
+fifth
+sixth
+seventh
+```
+
+Even with a small amount of noise, our differences are not going to zero, i.e., the errors are propagating through the table. It becomes difficult to tell what order is appropriate. One thing we can do is look at plots of the divided differences.
+
+```{r Diff Plots, fig.show='hold'}
+par(mfrow = c(3,2))
+plot(first, type="l",lwd=2,col="blue")
+plot(second, type="l",lwd=2,col="blue")
+plot(third, type="l",lwd=2,col="blue")
+plot(fourth, type="l",lwd=2,col="blue")
+plot(fifth, type="l",lwd=2,col="blue")
+plot(sixth, type="l",lwd=2,col="blue")
+```
+
+From the plots above, we can see definite trends in the first and second divided differences (first looks quadratic; second looks linear). The third divided difference *might* be constant. Going to the fourth, fifth, and sixth difference does not really change the shape of the curve. This suggests, that perhaps a third difference would be sufficient. If we add more noise, do you think this will work?
+
+### Splines
+
+As discussed in class, smoothing splines are piecewise polynomial functions of some order. Probably the most common order used is a $3^{rd}$ order (cubic) polynomial. The polynomials are joined at points called knots (i.e., two consecutive knots define the domain of one of the cubic polynomials). More formally, for some sequence of $(n+1)$ knots $k_0, k_1, ..., k_n$ where $k_0 = \min(x)$ and $k_n = \max(x)$, then
+curves $S_1, S_2, ... S_n$ given by
+$$ S_1 = a_1+b_1 x + c_1 x^2 + d_1 x^3 \qquad x \in [k_0,k_1) \\
+S_2 = a_2+b_2 x + c_2 x^2 + d_2 x^3 \qquad x \in [k_1,k_2) \\
+\vdots \\
+S_n = a_n+b_n x + c_n x^2 + d_n x^3 \qquad x \in [k_{n-1},k_n) $$
+
+define the spline $S(x)$. Because we wish the spline to be smooth, we require that $S_i'(k_i) = S_{i+1}'(k_{i})$. Optionally (among many options), it can also be required that $S_i''(k_i) = S_{i+1}''(k_{i})$. At the endpoints $k_0,k_n$, we can impose special boundary conditions. A "natural" spline is one where we require that $S_0''(k_0)=S_n''(k_n) = 0$, i.e., the first derivative stays constant at the exterior boundary. If we happen to have information about the first derivative at the endpoints, given by $f'(k_0)$ and $f'(k_n)$, then we can create a "clamped" spline by setting $S'_1(k_0) = f'(k_0)$ and $S_n'(k_n) = f'(k_n)$. 
+
+The fit of a spline is often assessed using a *penalized* log-likelihood. The penalized log-likelihood is defined by 
+
+$$\mathcal{L} = (y-f)'W(y-f) + \lambda c' \Sigma c$$
+
+where $W$ is a weights matrix (if you want certain observations to be more important), $y$ are the data, $f$ are the modeled values, $\lambda$ is a smoothing parameter, $c$ are the coefficients of penalized regression, and $\Sigma$ is a variance-covariance matrix of the spline functions. The important thing to note is the first term $(y-f)'W(y-f)$ is just a least-squares regression that can be weighted by $W$. The second thing is that $\lambda$ controls **how much smoothing** you wish to do. If $\lambda = 0$, we get a least-squares fit for each segment $S_i$ of our spline. If insteads, we use the `spar` flag (**s**moothing **par**ameter) and set it to 1, we get a highly smoothed spline.
+
+Let's try out a smoothing spline in R using a larger data set based on the same polynomial we used earlier:
+
+```{r Splines!}
+
+set.seed(8652)
+x <- sort(runif(200,-5,5)) #note the sorting
+y <- 2*x^3 - 5*x^2 + x + 5
+
+# y with (small) noise
+y.noise <- y + rnorm(200,0,50)
+
+plot(x, y.noise, ylab="y")
+```
+
+Okay, we have a fairly noisy data set. Let's try the function `smooth.spline` to find a nice fit:
+
+```{r Smooth}
+s1 <- smooth.spline(x,y.noise)
+m1 <- predict(s1, x)
+
+plot(x, y.noise, ylab="y", main = "Default Smoothed Spline")
+points(m1, col="red", type="l", lwd = 2)
+```
+
+Okay, that's not bad!!! Right out of the box, we didn't need to do much to get a pretty smoothed spline. Let's play with some of the options we have, namely, the amount of smoothing we wish to do and where the knots are. First, let's get some info from the spline object:
+
+```{r Values}
+s1$spar #how much smothing was done?
+s1$fit$knot #see how many knots and where, note these are scaled between xmin and xmax
+```
+
+Now that we know a bit about the "out-of-the-box" spline, we can mess around with it some. Let's try a spline with just a few knots, say 6, and not a lot of smoothing.
+
+```{r Spline2}
+s2 <- smooth.spline(x,y.noise, nknots = 6, spar = 0.1)
+m2 <- predict(s2, x)
+
+plot(x, y.noise, ylab="y", main="Spline with 6 knots")
+points(m2, col="red", type="l", lwd = 2)
+abline(v = unique(s2$fit$knot) * diff(range(x)) + min(x), col="blue", lty = 2, lwd = 2)
+```
+Note that the knots are not even spaced! How do you think they are spaced?
+
+```{r}
+table(cut(x, unique(s2$fit$knot) * diff(range(x)) + min(x), include.lowest=T))
+```
+
+Let's set the knots ourselves:
+
+```{r Spline3}
+s3 <- smooth.spline(x,y.noise, all.knots = seq(0,1,length=6), spar = 0.1)
+m3 <- predict(s3, x)
+
+plot(x, y.noise, ylab="y", main="Spline with 6 evenly spaced knots")
+points(m3, col="red", type="l", lwd = 2)
+abline(v = unique(s3$fit$knot) * diff(range(x)) + min(x), col="blue", lty = 2, lwd = 2)
+```
+
+Finally, let's compare 3 splines where we either have no smoothing, some smoothing, or full smoothing and we use a small number of knots, 4.
+
+```{r Spline4}
+s4 <- smooth.spline(x,y.noise, all.knots = seq(0,1,length=4), spar = 0)
+m4 <- predict(s4, x)
+
+s5 <- smooth.spline(x,y.noise, all.knots = seq(0,1,length=4), spar = 0.25)
+m5 <- predict(s5, x)
+
+s6 <- smooth.spline(x,y.noise, all.knots = seq(0,1,length=4), spar = 1)
+m6 <- predict(s6, x)
+
+plot(x, y.noise, ylab="y", main="Splines with 4 evenly spaced knots and different smoothing")
+points(m4, col="red", type="l", lwd = 2)
+points(m5, col="green", type="l", lwd = 2)
+points(m6, type="l",lwd=2)
+abline(v = unique(s4$fit$knot) * diff(range(x)) + min(x), col="blue", lty = 2, lwd = 2)
+legend("bottomright", legend = c("0", "0.25", "1"), lty = 1, col = c("red","green","black"), title = expression(lambda))
+```
+Why do we get a straight line when $\lambda = 1$? Why don't we see three distinct segments to the line?
