@@ -1,8 +1,11 @@
 ---
 title: "Chapter 4"
-output: 
+output:
+  html_document:
+    toc: yes
+    df_print: paged
   html_notebook:
-    toc: true
+    toc: yes
 ---
 
 
@@ -15,7 +18,7 @@ $$
 
 where 
 
-$$ L_k(x) = \frac{(x - x_0)(x - x_1)...(x - x_{k-1})(x - x_{k+1})...(x - x_n))}{(x_k - x_0)(x_k - x_1)...(x_k - x_{k-1})(x_k - x_{k+1})...(x_k - x_n))}.$$
+$$ L_k(x) = \frac{(x - x_0)(x - x_1)...(x - x_{k-1})(x - x_{k+1})...(x - x_n)}{(x_k - x_0)(x_k - x_1)...(x_k - x_{k-1})(x_k - x_{k+1})...(x_k - x_n)}.$$
 
 Let's use R to calculate $P(x)$ for some data set.
 
