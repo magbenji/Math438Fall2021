@@ -1,15 +1,17 @@
 ---
 title: "Chapter 4"
 output:
+  pdf_document:
+    toc: yes
+  html_notebook:
+    toc: yes
   html_document:
     toc: yes
     df_print: paged
-  html_notebook:
-    toc: yes
 ---
 
 
-### Lagrangian Polynomial
+## Lagrangian Polynomial
 The first thing in Chapter 4 of substance is the use of Lagrangian polynomials to fit data points. Recall that for $n+1$ points, we can write a unique $n^{th}$ order polymial
 
 $$
@@ -53,7 +55,7 @@ plot(lagrange(seq(0,4,by=0.05), c(0, 2, 3, 4), c(7, 11, 28, 63)), type = "l", xl
 points(c(0, 2, 3, 4), c(7, 11, 28, 63), col="red", cex=2, pch=20)
 ```
 
-### Divided Difference Tables
+## Divided Difference Tables
 
 First, let's make some simple data for us to use with our divided differences. We'll take a look at a data set without noise, and then add some noise into it. We will use 20 data points. Our data will follow the polynomial
 
@@ -116,7 +118,7 @@ plot(sixth, type="l",lwd=2,col="blue")
 
 From the plots above, we can see definite trends in the first and second divided differences (first looks quadratic; second looks linear). The third divided difference *might* be constant. Going to the fourth, fifth, and sixth difference does not really change the shape of the curve. This suggests, that perhaps a third difference would be sufficient. If we add more noise, do you think this will work?
 
-### Splines
+## Splines
 
 As discussed in class, smoothing splines are piecewise polynomial functions of some order. Probably the most common order used is a $3^{rd}$ order (cubic) polynomial. The polynomials are joined at points called knots (i.e., two consecutive knots define the domain of one of the cubic polynomials). More formally, for some sequence of $(n+1)$ knots $k_0, k_1, ..., k_n$ where $k_0 = \min(x)$ and $k_n = \max(x)$, then
 curves $S_1, S_2, ... S_n$ given by
@@ -211,3 +213,132 @@ abline(v = unique(s4$fit$knot) * diff(range(x)) + min(x), col="blue", lty = 2, l
 legend("bottomright", legend = c("0", "0.25", "1"), lty = 1, col = c("red","green","black"), title = expression(lambda))
 ```
 Why do we get a straight line when $\lambda = 1$? Why don't we see three distinct segments to the line?
+
+
+## Doing it All in Python
+
+Defining some functions to calculate Lagrangian polynomials
+
+```{python Lagrange}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scipy.interpolate as interp
+
+def Lk(z,x,y):
+  sub = np.zeros(x.size)
+  for i in range(sub.size): sub[i] = y[i]*np.prod(z - np.delete(x,i))/np.prod(x[i] - np.delete(x,i))
+  return np.sum(sub)
+
+def lagrange(v,x,y):
+  if x.size != y.size: return print("Error: x and y have different lengths.")
+  Px = np.zeros(v.size)
+  v.sort()
+  for i in range(v.size): Px[i] = Lk(v[i],x,y)
+  return np.stack([v,Px],axis=1)
+
+lg_data = lagrange(np.arange(-8,8.01,0.01), np.arange(-8,9), np.repeat(0.01,17))
+
+
+plt.plot(lg_data[:,0], lg_data[:,1])
+plt.scatter(np.arange(-8,9), np.repeat(0.01,17), color = 'red', zorder = 10)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('High Order Approximation')
+plt.show()
+plt.close()
+
+lg_data = lagrange(np.arange(0,4.05,0.05), np.array([0,2,3,4]), np.array([7,11,28,63]))
+
+plt.plot(lg_data[:,0], lg_data[:,1])
+plt.scatter(np.array([0,2,3,4]), np.array([7,11,28,63]), color = 'red', zorder = 10)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.show()
+plt.close()
+
+```
+
+
+Doing divided differences tables:
+
+```{python divided difference}
+rng = np.random
+rng.seed(19624)
+
+x = rng.uniform(-5,5,20)
+x.sort()
+y = 2*np.power(x,3) - 5*np.power(x,2) + x + 5
+#y with (small) noise
+y_noise = y + rng.normal(0,0.2,20)
+
+#numpy has a diff() function but it can't do lags
+#pandas.Series also has a diff() function and can do lags (keyword periods)
+first = pd.Series(y).diff()/pd.Series(x).diff()
+second = first.diff()/pd.Series(x).diff(periods=2)
+third = second.diff()/pd.Series(x).diff(periods=3)
+fourth = third.diff()/pd.Series(x).diff(periods=4)
+
+pd.DataFrame(data={'first': first, 'second': second,'third': third, 'fourth':fourth})
+```
+
+Repeating the process with the noisy y data:
+
+```{python dd with noise}
+first = pd.Series(y_noise).diff()/pd.Series(x).diff()
+second = first.diff()/pd.Series(x).diff(periods=2)
+third = second.diff()/pd.Series(x).diff(periods=3)
+fourth = third.diff()/pd.Series(x).diff(periods=4)
+fifth = fourth.diff()/pd.Series(x).diff(periods=5)
+sixth = fifth.diff()/pd.Series(x).diff(periods=6)
+seventh = sixth.diff()/pd.Series(x).diff(periods=7)
+
+div_diff = pd.DataFrame(data={'first': first, 'second': second,'third': third, 'fourth':fourth,
+                    'fifth': fifth, 'sixth': sixth, 'seventh': seventh})
+div_diff.plot(subplots=True)
+
+plt.show()
+plt.close()
+
+```
+
+Working with splines: Smoothing splines are much more difficult to work with in Python. I'd recommend following the code use in R. `scipy.interpolate` offers some functionality, but smoothing parameters do not work as expected. 
+
+```{python Splines}
+rng = np.random
+rng.seed(8652)
+
+x = rng.uniform(-5,5,200)
+x.sort()
+y = 2*np.power(x,3) - 5 * np.power(x,2) + x + 5
+y_noise = y + rng.normal(0,50,200)
+
+plt.scatter(x,y_noise)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.show()
+
+knots = np.linspace(-3,3,4) #note that Python automatically includes knots at the min/max x values, so there will be six values
+weight = np.repeat(1, x.size)
+s1 = interp.splrep(x, y_noise, w=weight, t = knots)
+m1 = interp.splev(x,s1)
+
+#here are the knots:
+s1[0]
+
+knots2 = np.array([-5 + 10/3, -5 + 20/3])
+s2 = interp.splrep(x, y_noise, w=weight, t = knots2)
+m2 = interp.splev(x,s2)
+
+plt.plot(x, m1, color='r')
+plt.plot(x, m2, color='b')
+plt.title('Splines with 6 or 4 knots')
+plt.legend(["6 knots","4 knots"])
+plt.show()
+plt.close()
+
+
+```
+
+
+

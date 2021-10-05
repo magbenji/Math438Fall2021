@@ -1,0 +1,425 @@
+---
+title: "Homework 3"
+author: "Benjamin Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  pdf_document:
+    toc: yes
+  html_notebook:
+    toc: yes
+---
+
+In this homework you were asked to do some simple optimization using the five criteria we discussed in class, and apply the five different optimization algorithms available in `optim`. The data and models came from problem 3.4.7 (on pg. 135) which has to do with estimating the weight ($W$) of a fish given its length ($l$) and girth ($g$). 
+
+### Entering Data and Modifying Them
+
+The data in the book are as follows:
+
+```{r Data}
+fish <- data.frame("l" = c(14.5, 12.5, 17.25, 14.5, 12.625, 17.75, 14.125, 12.625),
+                   "g" = c(9.75, 8.375, 11.0, 9.75, 8.5, 12.5, 9.0, 8.5),
+                   "W" = c(27, 17, 41, 26, 17, 49, 23, 16))
+head(fish)
+```
+```{python Data Py}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+fish = pd.DataFrame({'l': [14.5, 12.5, 17.25, 14.5, 12.625, 17.75, 14.125, 12.625],
+                   'g': [9.75, 8.375, 11.0, 9.75, 8.5, 12.5, 9.0, 8.5],
+                   'W': [27, 17, 41, 26, 17, 49, 23, 16]})
+fish.head()
+```
+
+
+I asked you to make two modifications to the data. The first task was to add some error to the data using `rnorm`. This is easily accomplished using:
+
+```{r Noisy}
+set.seed(68459)
+fish_noisy <- data.frame(apply(fish, c(1,2), function(x) rnorm(1,x)))
+head(fish_noisy)
+```
+
+Note the second argument in `apply` where I specify `c(1,2)`. This tells `apply` that I want to apply my function to each element of the data frame. The call to `rnorm` indicates that I want 1 random with mean $x$; I did not specify a SD, therefore it uses the default of 1. Here I perform something similar in Python, but instead I simply add a N(0,1) random to each of the values in `fish`.
+
+```{python Noisy Py}
+rng = np.random
+rng.seed(68459)
+fish_noisy = fish + rng.normal(size=np.prod(fish.size)).reshape((-1,3))
+fish_noisy.head()
+```
+
+
+The next step of the homework to create a third data set with outliers in the weight variable. These aren't terribly specific instructions; we need to choose how many observations to alter the weight and by how much. The coefficient of variation is defined as the variance of a variable divided by its mean. For weight, the CV is `r var(fish_noisy$W)/mean(fish_noisy$W)`. For 3 of the data points, let's add something within $\pm2$CV.
+
+
+```{r Outlier}
+set.seed(15697)
+fish_outlier <- fish_noisy
+nChanges <- 3
+changeMe  <- sample(1:nrow(fish_outlier), nChanges)
+CV <- var(fish_outlier$W)/mean(fish_outlier$W)
+fish_outlier$W[changeMe] <- fish_outlier$W[changeMe] + rnorm(nChanges,CV)*sample(c(-1,1),nChanges,replace=T)
+fish$W - fish_outlier$W #compare our final W to the original W
+```
+Okay, our data look good and ready for our models.
+
+```{python Outlier Py}
+rng.seed(15697)
+fish_outlier = fish_noisy.copy()
+nChanges = 3
+changeMe = rng.choice(len(fish.index), nChanges, replace = False)
+CV = np.var(fish_outlier.W)/np.mean(fish_outlier.W)
+fish_outlier.W[changeMe] = fish_outlier.W[changeMe] + rng.normal(CV,size=nChanges)*rng.choice([-1,1],nChanges)
+fish.W - fish_outlier.W
+```
+
+### Optimization with Different Criteria
+
+Okay, first we need to grab the code from the lecture that has the different criteria.
+
+```{r Criteria}
+chebyshev <- function(y, yhat) max(abs(y - yhat))
+meanAD <- function(y, yhat) mean(abs(y - yhat))
+medianAD <- function(y, yhat) median(abs(y - yhat))
+leastSq <- function(y, yhat) mean(abs(y - yhat)^2)
+llnorm <- function(y, yhat) sum(dnorm(y, yhat, log = T))
+```
+
+```{python Criteria Py}
+import scipy.stats as stats
+
+def chebyshev(y, yhat): 
+  return(np.max(np.abs(y - yhat)))
+
+def meanAD(y, yhat):
+  return(np.mean(np.abs(y - yhat)))
+
+def medianAD(y, yhat):
+  return(np.median(np.abs(y - yhat)))
+
+def leastSq(y, yhat):
+  return(np.mean((y-yhat)**2))
+
+def llnorm(y, yhat):
+  return(np.sum(stats.norm.logpdf(yhat,y)))
+```
+
+
+We also need the two different models, $W = k l^3$ and $W = k l g^2$. Let's write objective functions for these two models:
+
+```{r Objective Functions}
+## for W = k l ^3
+objOne <- function(k, data, dist = "chebyshev"){
+  with(data,{
+    W_hat <- k*l^3 #calculate the value of the first model for some parameter
+    eval(call(dist, W, W_hat)) #use the distance function specified
+  })
+}
+
+## for W = k l g ^2
+objTwo <- function(k, data, dist = "chebyshev"){
+  with(data,{
+    W_hat <- k*l*g^2 #calculate the value of the first model for some parameter
+    eval(call(dist, W, W_hat)) #use the distance function specified
+  })
+}
+
+###Try it out
+objOne(0.5,fish)
+objTwo(0.5,fish)
+```
+
+
+```{python Objective Functions Py}
+def objOne(k, data, dist=chebyshev, sign = 1):
+  W_hat = k * np.power(data.l,3) #note data should be a pandas data frame with columns named l and W
+  return(sign*dist(data.W, W_hat))
+
+def objTwo(k, data, dist=chebyshev, sign = 1):
+  W_hat = k * data.l * np.power(data.g,2) #note data should be a pandas data frame with columns named l and W
+  return(sign*dist(data.W, W_hat))
+
+objOne(0.5, fish)
+objTwo(0.5, fish)
+```
+
+It looks like the objective functions are ready for use in optimization. The last thing we need for optimization is a guess at the parameter value. Let's just assume that the average solution for $W$ is a good starting point.
+
+```{r Guesses}
+
+#Model one guesses
+guess_1 <- with(fish, mean(W / l^3)) 
+guess_1_n <- with(fish_noisy, mean(W / l^3)) 
+guess_1_o <- with(fish_outlier, mean(W / l^3)) 
+
+#Model two guesses
+guess_2 <- with(fish, mean(W / (l*g^2))) 
+guess_2_n <- with(fish_noisy, mean(W / (l*g^2))) 
+guess_2_o <- with(fish_outlier, mean(W / (l*g^2))) 
+
+c(guess_1,guess_1_n,guess_1_o)
+c(guess_2,guess_2_n,guess_2_o)
+```
+
+
+```{python Guesses Py}
+
+#Model one guesses
+guess_1 = np.mean(fish.W/np.power(fish.l,3)) 
+guess_1_n = np.mean(fish_noisy.W/np.power(fish_noisy.l,3)) 
+guess_1_o = np.mean(fish_outlier.W/np.power(fish_outlier.l,3))  
+
+#Model two guesses
+guess_2 = np.mean(fish.W/(np.power(fish.g,2)*fish.l)) 
+guess_2_n = np.mean(fish_noisy.W/(np.power(fish_noisy.g,2)*fish_noisy.l)) 
+guess_2_o = np.mean(fish_outlier.W/(np.power(fish_outlier.g,2)*fish_outlier.l)) 
+
+np.array([guess_1,guess_1_n,guess_1_o])
+np.array([guess_2,guess_2_n,guess_2_o])
+```
+
+It looks like the guesses don't vary much between the data sets, so we can just use one of the guesses for each model ($\sim 0.009$ and $\sim 0.018$ for models 1 and 2, respectively). We can now perform optimization using the five criteria and the three data sets.
+
+```{r Solutions}
+results <- data.frame()
+critList <- c("chebyshev","meanAD","medianAD","leastSq","llnorm")
+dataList <- c("fish","fish_noisy","fish_outlier")
+for(i in critList){
+  for(j in dataList){
+    clist <- if(i == "llnorm") list(fnscale = -1) else list()
+    newResult <- data.frame(optim(guess_1, objOne, data = get(j), dist = i, control = clist)[c("par","value","convergence")])
+    newResult$Criteria <- i
+    newResult$Data <- j
+    results <- rbind(results, newResult)
+  }
+}
+results
+
+### repeat for model 2
+
+results2 <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    clist <- if(i == "llnorm") list(fnscale = -1) else list()
+    newResult <- data.frame(optim(guess_2, objTwo, data = get(j), dist = i, control = clist)[c("par","value","convergence")])
+    newResult$Criteria <- i
+    newResult$Data <- j
+    results2 <- rbind(results2, newResult)
+  }
+}
+results2
+```
+
+The last thing you were asked to do is plot the different solutions from the different criteria. First we need to create the data to plot, then pass those data to `ggplot`.
+
+```{r Plots}
+
+modelOne <- function(l, k) k * l^3
+modelTwo <- function(l, g, k) k * l * g^2
+
+raw <- rbind(fish,fish_noisy, fish_outlier)
+raw$Data <- rep(dataList, each = nrow(fish))
+
+lVals <- seq(min(raw$l), max(raw$l), length=100)
+gVals <- seq(min(raw$g), max(raw$g), length=100)
+
+
+plotData <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    p1 <- subset(results, Data == j & Criteria == i)$par
+    p2 <- subset(results2, Data == j & Criteria == i)$par
+    plotData <- rbind(plotData, 
+                      data.frame(l=lVals, Criteria = i, Data = j, 
+                                 W = c(modelOne(lVals, p1), modelTwo(lVals,gVals,p2)),
+                                 Model = rep(c("One","Two"), each = length(lVals)))
+                      )
+  }
+}
+
+library(ggplot2)
+g <- ggplot(plotData, aes(x = l, y = W))
+g + geom_line(aes(color=Criteria)) + geom_point(data = raw) + 
+  facet_grid(rows = vars(Model), cols= vars(Data), labeller = label_both) +
+  theme_bw() + xlab("Length") + ylab("Weight")
+```
+
+
+Doing all the above using Python instead:
+
+```{python Solutions Py}
+import scipy.optimize as optim
+
+results = pd.DataFrame(columns = ['Criteria', 'data','par','value','convergence'])
+
+critList = [chebyshev, meanAD, medianAD, leastSq, llnorm]
+dataList = {'fish':fish, 'fish_noisy':fish_noisy, 'fish_outlier':fish_outlier}
+
+for i in critList:
+  #iterating over a dictionary where j = keys and k = values
+  for j, k in dataList.items():
+    scaleVal = 1 if i.__name__ != 'llnorm' else -1
+    newResult = optim.minimize(objOne, guess_1, args=(k,i,scaleVal), method = 'Nelder-Mead')
+    results = results.append({'Criteria': i.__name__, 'data': j, 'par': newResult.x[0], 'value': newResult.fun, 
+                                'convergence': newResult.status },ignore_index=True)
+
+
+results2 = pd.DataFrame(columns = ['Criteria', 'data','par','value','convergence'])
+
+for i in critList:
+  #iterating over a dictionary where j = keys and k = values
+  for j, k in dataList.items():
+    scaleVal = 1 if i.__name__ != 'llnorm' else -1
+    newResult = optim.minimize(objTwo, guess_1, args=(k,i,scaleVal), method = 'Nelder-Mead')
+    results2 = results2.append({'Criteria': i.__name__, 'data': j, 'par': newResult.x[0], 'value': newResult.fun, 
+                                'convergence': newResult.status },ignore_index=True)
+                                
+
+```
+
+```{python Py Plots}
+def modelOne(l,k): return k * np.power(l,3)
+def modelTwo(l,g,k):  return k * l * np.power(g,2)
+
+raw = pd.concat([fish,fish_noisy,fish_outlier])
+raw['Data'] = np.repeat(list(dataList.keys()),len(fish.index))
+
+lVals = np.linspace(np.min(raw.l), np.max(raw.l), 100)
+gVals = np.linspace(np.min(raw.g), np.max(raw.g), 100)
+
+plotData = pd.DataFrame(columns = ['l','Criteria','Data','W','Model'])
+
+for i in critList:
+  for j,k in dataList.items():
+    p1 = results[(results.Criteria == i.__name__) & (results.data == j)].par.item()
+    p2 = results2[(results.Criteria == i.__name__) & (results.data == j)].par.item()
+    plotData = plotData.append(pd.DataFrame({'l':lVals, 'Criteria': i.__name__, 'Data': j, 'W': modelOne(lVals,p1), 'Model': 'One' }))
+    plotData = plotData.append(pd.DataFrame({'l':lVals, 'Criteria': i.__name__, 'Data': j, 'W': modelTwo(lVals,gVals,p2), 'Model': 'Two'}))
+
+
+#plotnine adds ggplot functionality to python
+
+import plotnine as p9
+
+(
+  p9.ggplot(plotData) + p9.aes(x = 'l', y = 'W')
+   + p9.geom_line(p9.aes(color='Criteria')) + p9.geom_point(data=raw)
+   + p9.facet_grid('Model ~ Data', labeller = p9.label_both)
+   + p9.theme_bw() + p9.xlab("Length") + p9.ylab("Weight")
+)
+
+```
+
+
+
+
+### Testing Different `optim` Algorithms
+
+The final part of the homework was to compare the various methods available to `optim` or `minimize` to perform the optimization. You were asked to make a table of the results. I will only do this for R, however, to do it in, Python, you can simply follow the same logic: Make another loop that goes over the various `minimize` algorithms (listed [here](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html)). 
+
+```{r Algorithms}
+
+algos <- c("Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN","Brent")
+
+results3 <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    for(k in algos){
+      clist <- if(i == "llnorm") list(fnscale = -1) else list()
+      newResult <- suppressWarnings(data.frame(optim(guess_1, objOne, data = get(j), dist = i, 
+                                    control = clist, method = k, lower = 0, upper = 1)[c("value")]))
+      newResult$Criteria <- i
+      newResult$Data <- j
+      newResult$Algorithm <- k
+      results3 <- rbind(results3, newResult)
+    }
+  }
+}
+
+xtabs(value ~ Criteria + Algorithm + Data, data = results3)
+```
+
+And for model 2:
+
+```{r}
+### model 2
+
+results4 <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    for(k in algos){
+      clist <- if(i == "llnorm") list(fnscale = -1) else list()
+      newResult <- suppressWarnings(data.frame(optim(guess_2, objTwo, data = get(j), dist = i, 
+                                    control = clist, method = k, lower = 0, upper = 1)[c("value")]))
+      newResult$Criteria <- i
+      newResult$Data <- j
+      newResult$Algorithm <- k
+      results4 <- rbind(results4, newResult)
+    }
+  }
+}
+
+xtabs(value ~ Criteria + Algorithm + Data, data = results4)
+```
+
+One thing that jumps out looking at both models and all of our criteria is that the "Brent" method is always the best algorithm for our problem! This is because the Brent algorithm is specialized for 1-D optimization, like we are doing here. *Python has a separate function for 1-D optimization called `brent`*. Let's redo our results using Brent and plot them:
+
+```{r New Plots}
+
+results <- data.frame()
+critList <- c("chebyshev","meanAD","medianAD","leastSq","llnorm")
+dataList <- c("fish","fish_noisy","fish_outlier")
+for(i in critList){
+  for(j in dataList){
+    clist <- if(i == "llnorm") list(fnscale = -1) else list()
+    newResult <- data.frame(optim(guess_1, objOne, data = get(j), dist = i, 
+                                  control = clist, method = "Brent", lower = 0, upper = 1)[c("par","value","convergence")])
+    newResult$Criteria <- i
+    newResult$Data <- j
+    results <- rbind(results, newResult)
+  }
+}
+results
+
+### repeat for model 2
+
+results2 <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    clist <- if(i == "llnorm") list(fnscale = -1) else list()
+    newResult <- data.frame(optim(guess_2, objTwo, data = get(j), dist = i, 
+                                  control = clist, method = "Brent", lower = 0, upper = 1)[c("par","value","convergence")])
+    newResult$Criteria <- i
+    newResult$Data <- j
+    results2 <- rbind(results2, newResult)
+  }
+}
+results2
+
+plotData <- data.frame()
+for(i in critList){
+  for(j in dataList){
+    p1 <- subset(results, Data == j & Criteria == i)$par
+    p2 <- subset(results2, Data == j & Criteria == i)$par
+    plotData <- rbind(plotData, 
+                      data.frame(l=lVals, Criteria = i, Data = j, 
+                                 W = c(modelOne(lVals, p1), modelTwo(lVals,gVals,p2)),
+                                 Model = rep(c("One","Two"), each = length(lVals)))
+                      )
+  }
+}
+
+g <- ggplot(plotData, aes(x = l, y = W))
+g + geom_line(aes(color=Criteria)) + geom_point(data = raw) + 
+  facet_grid(rows = vars(Model), cols= vars(Data), labeller = label_both) +
+  theme_bw() + xlab("Length") + ylab("Weight") + ggtitle("Fits Using the \"Brent\" Algorithm")
+```
+
+### Who is the Winner?
+
+This is a bit of challenge to answer because we do not know the truth. Clearly, regardless of the criteria, data set, or model, we should be using the Brent algorithm for our 1-D optimization. That leaves a choice of which of the criteria seemed to be best. Least squares and the normal log-likelihood produce identical estimates, so they're interchangeable. I would argue that the mean AD is more robust (changes less) with the noisier data and outliers, and therefore might be the best choice. However, depending on your purpose, you might choose something else!
