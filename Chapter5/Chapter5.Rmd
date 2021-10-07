@@ -2,10 +2,12 @@
 title: "Chapter 5"
 author: "Ben Ridenhour"
 output:
-  html_notebook:
-    toc: yes
   html_document:
     df_print: paged
+    toc: yes
+  html_notebook:
+    toc: yes
+  pdf_document:
     toc: yes
 ---
 
@@ -207,7 +209,7 @@ choose(length(x), length(x)%/%4) #more than enough!!!
 
 ## Let's try it
 NResamp <- 1000
-resample <- replicate(NResamp, sample(x,length(x)%/%4))
+resample <- replicate(NResamp, sample(x,length(x)%/%4)) #integer division is done with "%/%" in R
 
 hist(colMeans(resample), main = "Resampled Means", xlab = "mean")
 quantile(colMeans(resample), c(0.05,0.5,0.95)) 
@@ -252,18 +254,49 @@ x = np.concatenate((x ,rng.normal(5,1,3))) #add in some outliers
 np.mean(x) #not near 0!
 np.var(x)**0.5 #not near 1!
 
-### Let's say we leave ~75% out, see how many possibilities that gives
-#choose(length(x), length(x)%/%4) #more than enough!!!
+import scipy.special as scispec
 
-## Let's try it
-#NResamp <- 1000
-#resample <- replicate(NResamp, sample(x,length(x)%/%4))
+scispec.comb(x.size, x.size//4, exact=True) #integer division is done with "//" in Python
 
-#hist(colMeans(resample), main = "Resampled Means", xlab = "mean")
-#quantile(colMeans(resample), c(0.05,0.5,0.95)) 
+NResamp = 1000
+resample = rng.choice(x,(x.size//4,NResamp)) #matrix with dimensions x.size//4 x NResamp
 
-#hist(diag(var(resample))^0.5, main = "Resample Variances", xlab = "variance")
-#quantile(diag(var(resample))^0.5, c(0.05,0.5,0.95))
+plt.hist(resample.mean(axis=0))
+plt.title('Resampled Means')
+plt.xlabel('Mean')
+plt.show()
+plt.close()
+
+np.quantile(resample.mean(axis=0),[0.025,0.5,0.975]) #95% interval and median
+
+plt.hist(resample.var(axis=0)**0.5)
+plt.title('Resampled Error')
+plt.xlabel('Error')
+plt.show()
+plt.close()
+
+np.quantile(resample.var(axis=0)**0.5,[0.025,0.5,0.975]) #95% interval and median
+
+##### with replacement
+
+resample = rng.choice(x,(x.size,NResamp), replace = True) #matrix with dimensions x.size//4 x NResamp
+
+plt.hist(resample.mean(axis=0))
+plt.title('Resampled Means (with Replacement)')
+plt.xlabel('Mean')
+plt.show()
+plt.close()
+
+np.quantile(resample.mean(axis=0),[0.025,0.5,0.975]) #95% interval and median
+
+plt.hist(resample.var(axis=0)**0.5)
+plt.title('Resampled Error (with Replacement)')
+plt.xlabel('Error')
+plt.show()
+plt.close()
+
+np.quantile(resample.var(axis=0)**0.5,[0.025,0.5,0.975]) #95% interval and median
+
 ```
 
 ## Simulating Equations
@@ -279,4 +312,14 @@ hist(x,100)
 ```
 
 This clearly a distribution for which you will not get an analytical solution, and we can now query the distribution about relevant questions. For example, what is median of $x(t=1)$? (`r median(x)`) Perhaps $x<0$ causes a catastrophic failure; what is the probability that $x < 0$? (`r sum(x < 0)/length(x)`)
+
+```{python}
+x = np.exp(-1*rng.exponential(3,10000)) * np.sin(rng.normal(2,0.5,10000))
+plt.hist(x, bins = 100)
+plt.show()
+plt.close()
+
+np.median(x)
+np.sum(x < 0)/x.size
+```
 
