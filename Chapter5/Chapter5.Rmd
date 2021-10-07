@@ -93,7 +93,7 @@ plt.show()
 plt.close()
 
 CDF = ed.ECDF(vals)
-InvCDF  = ed.monotone_fn_inverter(CDF,np.linspace(-5,31,1000)) #find the inverse CDF
+InvCDF  = ed.monotone_fn_inverter(CDF,np.linspace(np.min(vals) - 1, np.max(vals) + 1,1000)) #find the inverse CDF
 
 vals2 = InvCDF(rng.uniform(size=2000))
 
