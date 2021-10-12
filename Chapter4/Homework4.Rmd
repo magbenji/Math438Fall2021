@@ -1,0 +1,420 @@
+---
+title: "Chapter 4 Homework"
+author: "Benjamin Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    toc: yes
+---
+
+# Problem 1
+
+The first problem asked you to:
+
+  1. Load a up a RData file called `Homework4.RData`
+  2. Subsample some relatively evenly spaced points ($n\le15$)
+  3. Fit a Lagrangian polynomial to the subsample
+  4. Make a table of divided differences for the subsample
+
+
+##Data Subsetting
+  
+Here we load up the data set, **sort the values**, and use `runif()` to get some relatively evenly spaced points. I plot both the full data set and the subsample.   
+
+```{r Subset1}
+load("../Homework4.RData")
+
+plot(x,y, main="Full Data Set")
+
+### Sort the data so it's a bit easier to get evenly spaced points
+y <- y[order(x)]
+x <- sort(x)
+
+set.seed(68123)
+randx <- runif(15, min(x), max(x))
+xset <- c()
+for(i in randx) xset <- c(xset,which.min(abs(i - x)))
+
+xset <- sort(xset)
+
+sub.x <- x[xset]
+sub.y <- y[xset]
+
+plot(sub.x,sub.y, type = "l", xlab="x",ylab="y", main="Subset of 15 Points")
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+x = np.asarray(r.x)
+y = np.asarray(r.y)
+
+plt.scatter(x,y)
+plt.title("Full Dataset")
+plt.xlabel('x')
+plt.ylabel('y')
+plt.show()
+plt.close()
+
+y = y[x.argsort()]
+x.sort()
+
+rng = np.random
+rng.seed(6851)
+randx = rng.uniform(min(x), max(x), 15)
+xset = np.array([])
+for i in randx: xset = np.append(xset, np.argmin(np.abs(i - x)))
+
+xset.sort()
+
+sub_x = x[xset.astype('int')]
+sub_y = y[xset.astype('int')]
+
+plt.plot(sub_x,sub_y)
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('Subset of 15 Points')
+plt.show()
+plt.close()
+
+
+```
+## Lagrangian
+
+The main data set shows several obvious changes in curvature. Functions that might look like this are from high order polynomials (degree $\ge4$) or things from the sine family (and maybe others?). The subsample obviously looks a bit different than the main data set, but it still shares some of the same curvature (which we want). Okay, let's see what the Lagrangian looks like. To do this, I borrow the code from the Chapter 4 example and run it on the subsample. I plot the fitted polynomial against the data.
+
+```{r}
+#z is the point to evaluate at
+#x is the x data
+#y is the y data
+#i is index of the polynomial, i.e., L_k=L_i
+Lk <- function(z, x, y){
+  sub <- rep(NA, length(x))
+  for(i in seq_along(sub)) sub[i]  <- y[i]*prod(z - x[-i]) / prod(x[i] - x[-i])
+  sum(sub)
+}
+
+#v are values to evaluate the polynomial at
+#x and y are the data
+lagrange  <- function(v,x,y){
+  if(length(x) != length(y)) return(print("Error: x and y have different lengths."))
+  Px <- rep(NA, length(v))
+  v <- sort(v)
+  for(i in seq_along(v)) Px[i] <- Lk(v[i],x,y)
+  out <- matrix(c(v, Px), ncol = 2)
+  out
+}
+
+plotRange <- function(y) mean(range(y)) + 1.1*(range(y) - mean(range(y))) #convenience function to get a nice range
+
+lv <- lagrange(seq(min(sub.x),max(sub.x),length = 200), sub.x, sub.y)
+plot(lv, type="l", xlab="x", ylab="y", main = "High Order Approximation", lwd = 2, col="blue", ylim = plotRange(sub.y))
+points(sub.x,sub.y, pch = 20, cex =2 , col="red")
+```
+
+
+```{python}
+def Lk(z,x,y):
+  sub = np.zeros(x.size)
+  for i in range(sub.size): sub[i] = y[i]*np.prod(z - np.delete(x,i))/np.prod(x[i] - np.delete(x,i))
+  return np.sum(sub)
+
+def lagrange(v,x,y):
+  if x.size != y.size: return print("Error: x and y have different lengths.")
+  Px = np.zeros(v.size)
+  v.sort()
+  for i in range(v.size): Px[i] = Lk(v[i],x,y)
+  return np.stack([v,Px],axis=1)
+
+lg_data = lagrange(np.linspace(np.min(sub_x),np.max(sub_x),200), sub_x, sub_y)
+
+plt.plot(lg_data[:,0], lg_data[:,1])
+plt.scatter(sub_x, sub_y, color = 'red')
+plt.ylim((0,25))
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('High Order Approximation')
+plt.show()
+plt.close()
+
+```
+
+## Divided Differences
+
+The Lagrangian fits all of the data points; it does so in a somewhat osciallatory pattern, but that is to be expected to some degree. Now do the divided differences. First I will make the requested table; afterward, I plot the differences to see if there is some obvious pattern there.
+
+
+```{r DivDiff, fig.show='hold'}
+diff1 <- diff(sub.y)/diff(sub.x)
+diff2 <- diff(diff1)/diff(sub.x,lag=2)
+diff3 <- diff(diff2)/diff(sub.x,lag=3)
+diff4 <- diff(diff3)/diff(sub.x,lag=4)
+diff5 <- diff(diff4)/diff(sub.x,lag=5)
+
+diffs <- data.frame(d1 = diff1, d2 = c(NA, diff2), d3 = c(NA,NA, diff3), d4 = c(NA,NA,NA,diff4), d5 = c(NA,NA,NA,NA,diff5))
+diffs
+
+par(mfrow=c(2,2))
+plot(diffs$d1, type = "l", main="First Divided Difference")
+plot(diffs$d2, type = "l", main="Second Divided Difference")
+plot(diffs$d3, type = "l", main="Third Divided Difference")
+plot(diffs$d4, type = "l", main="Fourth Divided Difference")
+
+```
+
+
+```{python}
+first = pd.Series(sub_y).diff()/pd.Series(sub_x).diff()
+second = first.diff()/pd.Series(sub_x).diff(periods=2)
+third = second.diff()/pd.Series(sub_x).diff(periods=3)
+fourth = third.diff()/pd.Series(sub_x).diff(periods=4)
+fifth = fourth.diff()/pd.Series(sub_x).diff(periods=5)
+
+div_diff = pd.DataFrame(data={'first': first, 'second': second,'third': third, 'fourth':fourth,
+                    'fifth': fifth})
+div_diff.plot(subplots=True, layout = (3,2))
+
+plt.show()
+plt.close()
+```
+The divided differences don't do a whole lot to help remedy the situation. We see that none of the divided difference show either a linear trend or are relatively constant. Because of these facts, I would favor a function from the sine family over a polynomial (which would hopefully display both of those characteristics).
+
+# Problem 2 --- Repeat with different subsamples
+
+In problem 2 you're asked to repeat problem 1 twice with new subsamples and see if it makes you change your opinion. We are basically "bootstrapping" our opinion of the appropriate model to use.
+
+```{r Resamples}
+
+set.seed(5908)
+randx <- runif(30, min(x), max(x))
+xset <- c()
+for(i in randx) xset <- c(xset,which.min(abs(i - x)))
+
+xset <- sort(xset)
+
+sub.x2 <- x[xset[1:15*2]] #take even elements xset
+sub.y2 <- y[xset[1:15*2]]
+
+sub.x3 <- x[xset[1:15*2-1]] #take odd elements of xset
+sub.y3 <- y[xset[1:15*2-1]]
+
+plot(sub.x2,sub.y2, type = "l", ylim = range(y), lwd=2, xlab="x", ylab="y")
+lines(sub.x3,sub.y3, col= "red", lwd = 2)
+```
+
+Those subsets both seem pretty reasonable; again, they share some of the main features of the full data set. First, we'll do the Lagrangians:
+
+```{r New Lagrangians, fig.show = "hold", fig.height = 4, fig.width = 6}
+
+par(mfrow=c(2,1))
+
+lv2 <- lagrange(seq(min(sub.x2),max(sub.x2),length = 200), sub.x2, sub.y2)
+lv3 <- lagrange(seq(min(sub.x3),max(sub.x3),length = 200), sub.x3, sub.y3)
+plot(lv2, type="l", xlab="x", ylab="y", main = "High Order Approximation - Second Set", lwd = 2, col="blue", ylim = plotRange(sub.y2))
+points(sub.x2,sub.y2, pch = 20, cex =2 , col="red")
+plot(lv3, type="l", xlab="x", ylab="y", main = "High Order Approximation - Third Set", lwd = 2, col="blue", ylim = plotRange(sub.y3))
+points(sub.x3,sub.y3, pch = 20, cex =2 , col="red")
+```
+
+These functions are oscillatory as well. Let's try the divided differences for the subsets. I will make a convenience function to calculate divided differences first, then I will plot its output.
+
+```{r Divided Differences of Resamples, fig.show = "hold"}
+
+makeDiffs <- function(x,y,deg=5){
+  diffs <- list()
+  for(i in 1:deg) diffs[[paste("d",i,sep="")]] <-
+    if(i == 1) diff(y)/diff(x) else diff(diffs[[i-1]])/diff(x,lag=i)
+  return(diffs)
+} 
+
+par(mfrow=c(3,2))
+lapply(makeDiffs(sub.x2,sub.y2), plot, type="l", ylab="Divided Diff")
+#lapply(makeDiffs(sub.x2,sub.y2), function(x,...) print(plot(x,...)), type="l")
+```
+```{r Differences of Resamples 2, fig.show="hold"}
+par(mfrow=c(3,2))
+lapply(makeDiffs(sub.x3,sub.y3), plot, type="l", ylab="Divided Diff")
+```
+
+So, looking at the divided differences for the second subset reinforces the idea that what we have might not be a polynomial, due to a lack of a linear-ish plot or anything constant looking. The third set is less conclusive, the last plots (4th and 5th divided differences) look sort of like a constant with errors being propagated in the table. I would argue however that the weight of the evidence lies in something that isn't a polynomial would serve as our best model (perhaps sine?).
+
+# Problem 3
+
+In problem 3, you are asked to use the `smooth.spline()` function to explore the data. You were asked to:
+
+1. Plot splines with the default knots but with specifying `spar` in {0, 0.2, 0.4, 0.6, 0.8, 1.0}.
+2. Repeat the first step but use 4 knots. (NB: the assignment said 3 but there is a problem with using 3.)
+3. Repeat the first step but use 6 knots.
+4. Interpret the functional form suggested by the splines.
+
+Okay, let's try the first part. I'm only going to do this in R, due to Python's poor implementation of smoothing splines.
+
+```{r Default Splines}
+library(scales) #for alpha command to get transparency
+s0 <- smooth.spline(x,y,spar=0)
+s0.2 <- smooth.spline(x,y,spar=0.2)
+s0.4 <- smooth.spline(x,y,spar=0.4)
+s0.6 <- smooth.spline(x,y,spar=0.6)
+s0.8 <- smooth.spline(x,y,spar=0.8)
+s1 <- smooth.spline(x,y,spar=1)
+plot(x,y, col = alpha("black",0.25), main="Smoothing Splines with Default Knots")
+points(predict(s0,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s0.2,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "blue")
+points(predict(s0.4,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "green")
+points(predict(s0.6,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "orange")
+points(predict(s0.8,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s1,seq(min(x),max(x), length=200)), type="l", lwd = "2")
+legend("topleft",as.character(seq(0,1,by=0.2)), lty = 1, lwd =2, 
+       col=c("red","blue","green","orange","red","black"), title="spar", cex = 0.8)
+```
+
+Obviously, we get very different fits depending on what value of `spar` we use. Once `spar = 1`, then the curve is smooth and not being influenced *too much* by outliers.
+
+```{r 4 Knot Splines}
+s0 <- smooth.spline(x,y,spar=0, nknots = 4)
+s0.2 <- smooth.spline(x,y,spar=0.2, nknots = 4)
+s0.4 <- smooth.spline(x,y,spar=0.4, nknots = 4)
+s0.6 <- smooth.spline(x,y,spar=0.6, nknots = 4)
+s0.8 <- smooth.spline(x,y,spar=0.8, nknots = 4)
+s1 <- smooth.spline(x,y,spar=1, nknots = 4)
+plot(x,y, col = alpha("black",0.25), main="Smoothing Splines with 4 Knots")
+points(predict(s0,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s0.2,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "blue")
+points(predict(s0.4,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "green")
+points(predict(s0.6,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "orange")
+points(predict(s0.8,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s1,seq(min(x),max(x), length=200)), type="l", lwd = "2")
+legend("topleft",as.character(seq(0,1,by=0.2)), lty = 1, lwd =2, 
+       col=c("red","blue","green","orange","red","black"), title="spar", cex = 0.8)
+```
+
+With few knots, we can see that the smoothing parameter "over smooths" the data if it too large. Once we try `spar > 0.4`, we get nothing but a set of flat lines, which is obviously not desirable. Let's add in a couple more knots and see what happens.
+
+```{r 6 Knot Splines}
+s0 <- smooth.spline(x,y,spar=0, nknots = 6)
+s0.2 <- smooth.spline(x,y,spar=0.2, nknots = 6)
+s0.4 <- smooth.spline(x,y,spar=0.4, nknots = 6)
+s0.6 <- smooth.spline(x,y,spar=0.6, nknots = 6)
+s0.8 <- smooth.spline(x,y,spar=0.8, nknots = 6)
+s1 <- smooth.spline(x,y,spar=1, nknots = 6)
+plot(x,y, col = alpha("black",0.25), main="Smoothing Splines with 6 Knots")
+points(predict(s0,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s0.2,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "blue")
+points(predict(s0.4,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "green")
+points(predict(s0.6,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "orange")
+points(predict(s0.8,seq(min(x),max(x), length=200)), type="l", lwd = "2", col = "red")
+points(predict(s1,seq(min(x),max(x), length=200)), type="l", lwd = "2")
+legend("topleft",as.character(seq(0,1,by=0.2)), lty = 1, lwd =2, 
+       col=c("red","blue","green","orange","red","black"), title="spar", cex = 0.8)
+```
+Much like the case with 4 knots, we can pretty easily over-smooth the data; this effect is not as dramatic as the case with 4 knots however. I would also argue that, e.g., the curve where `spar = 0.2` and `nknots = 6` looks like a better fit to the data than its counterpart that has only 4 knots. 
+
+As for model choice, the smoothing splines definitely have a sinusoidal shape. I would argue that they reinforce the idea that we should attempt to model the data with that type of function. 
+
+# Problem 4
+
+You were asked to fit the model of your choosing using `lm()` / `glm()` and `optim()` / `minimize()`, the latter being useful for dealing with non-linearity in the model. Because I am choosing sine as my model the appropriate model would be:
+
+$$y \approx \alpha + \beta_1 sin(Ax+B)$$
+where $\alpha$ is the intercept, $\beta_1$ controls the amplitude of the wave, $A$ controls the frequency, and $B$ the phase shift. We could possibly have another term that would describe an upward or downward trend of the wave, but looking at the previous smoothing curves, we see that the lines have no slope to them and are approximately given by $y = 10$; thus it is unlikely that we need such a term. The **linear** components of the model are $\alpha$ and $\beta_1$, while $A$ and $B$ cannot be fit by `lm()`. Why does it make sense to use `lm()` for as much work as possible?
+
+Here is the code for performing the model fit using AIC for optimization:
+
+```{r Optimizing the Model}
+##create the objective function that returns AIC values
+objectiveFn <- function(x, xvals, yvals){
+  with(as.list(x),{
+    AIC(lm(yvals ~ I(sin(A*xvals+B))))
+  })
+}
+
+##need to have starting point for optim
+guess <- c("A"=1, "B"=0)
+
+##perform the optimization
+fit <- optim(guess,objectiveFn, xvals=x, yvals=y)
+fit
+```
+
+```{python}
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+import scipy.optimize as optim
+
+def objectiveFn(x, xvals, yvals):
+  A, B = x
+  lm = smf.glm('Y ~ np.sin(A*X + B)', data = pd.DataFrame({'X': xvals, 'Y':yvals}) )
+  lmf = lm.fit()
+  return lmf.aic
+
+guess = [1, 0]
+
+fit = optim.minimize(objectiveFn, guess, (x,y), method = 'Nelder-Mead')
+fit.x
+```
+
+The optimization converged and returned values of $A =$ `r round(fit$par[1],3)` and $B =$ `r round(fit$par[2],3)`. Let's use those values to figure out what $\alpha$ and $\beta_1$ are:
+
+```{r Final Model}
+final <- lm(y ~ I(sin(fit$par[1]*x+fit$par[2])))
+summary(final)
+```
+
+So, `lm()` reports that $\alpha =$ `r round(coef(final)[1],3)` and $\beta_1 =$ `r round(coef(final)[2],3)`. 
+
+
+```{python}
+final = smf.glm('Y ~ np.sin(fit.x[0]*X + fit.x[1])',  data = pd.DataFrame({'X': x, 'Y':y}))
+final_fit = final.fit()
+final_fit.summary()
+```
+
+
+Let's plot the solution:
+
+```{r Plotting Model}
+plot(x,y, col = alpha("black",0.25), main="Final Fitted Model")
+points(seq(min(x),max(x),length=200), predict(final, data.frame(x = seq(min(x),max(x),length=200))), col="red", lwd=2, type="l")
+```
+
+
+```{python}
+plt.scatter(x,y, facecolors='none', edgecolors='k', alpha = 0.25)
+plt.plot(np.linspace(np.min(x), np.max(x), 200), final_fit.predict(pd.DataFrame({'X':np.linspace(np.min(x), np.max(x), 200)}), transform=True), color = 'r')
+plt.title('Final Fitted Model')
+plt.show()
+plt.close()
+```
+
+
+Our model looks to do a good job of fitting the data!
+
+# Bonus: What if we tried a polynomial model????
+
+As I mentioned earlier, there are polynomials that might fit our data pretty well. Namely, we see 3 local maxima/minima, suggesting a quartic polynomial do a reasonable job. Let's try that out with some higher orders as well. I'm going to use the `poly()` function in R which creates orthogonal polynomial sets (we do this because, e.g., $x$ and $x^2$ are correlated with each other and we wish to eliminate that correlation). Python doesn't have the exact equivalent of this function, but you can find fairly simple workarounds for it. Here is the R code:
+
+```{r Big Poly}
+bp4 <- lm(y ~ poly(x,4))
+bp5 <- lm(y ~ poly(x,5))
+bp6 <- lm(y ~ poly(x,6))
+bp7 <- lm(y ~ poly(x,7))
+bp8 <- lm(y ~ poly(x,8))
+
+anova(bp4,bp5,bp6,bp7,bp8) #bp6, the sixth order polynomial, wins
+
+summary(bp6)
+```
+
+Let's plot it!
+
+```{r Plotting Polynomial Model}
+plot(x,y, col = alpha("black",0.25), main="Sixth Order Polynomial Model")
+points(seq(min(x),max(x),length=200), predict(bp6, data.frame(x = seq(min(x),max(x),length=200))), col="red", lwd=2, type="l")
+```
+
+While the AIC value for our sine model is better, this model seems to do a good job as well! How could you distinguinsh which model is "more correct" in the future?
