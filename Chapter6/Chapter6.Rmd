@@ -1,0 +1,279 @@
+---
+title: 'Chapter 6: Markov Chains'
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    toc: yes
+---
+
+# Markov Chains
+
+The only real novel part of Chapter 6 is the introduction of Markov chains. Markov chains are said to be "memoryless" because the next state of the chain strictly depends on the current state of the chain, i.e. $X_t\rightarrow X_{t+1}$. Markov chains are used in a wide variety of applications. The simplest of those would be in an iterative. If the model is linear, we can write this down in matrix notation as
+
+$$\mathbb{x}_{t} = \mathbb{B}\mathbb{x}_{t-1} $$
+
+where $\mathbb{B}$ is an $n\times n$ the transition matrix which defines the transition probabilities among $n$ states. Clearly, we solve the for the equilibrium $\mathbb{x}^* = \mathbb{x}_{t} = \mathbb{x}_{t-1}$ by solving $\mathbb{x}^* = \mathbb{B}\mathbb{x}^*$ which gives $(\mathbb{B} - \mathbb{I}) \mathbb{x}^*= 0$. This is the same solving for an eigenvalue $\lambda = 1$. What does it mean if there is no $\lambda = 1$? Should there ever be a case where there isn't an eigenvalue of 1? Let's do this for the example in the book of politics (pg. 227):
+
+```{r}
+#transition matrix
+B <- matrix(c(0.75, 0.05, 0.20, 0.20, 0.6, 0.2, 0.4, 0.2, 0.4), ncol = 3)
+eigensys <- eigen(B)
+eigensys$values #first element is lamda = 1
+v1 <- eigensys$vectors[,1] 
+v1 / sum(v1) #make a probability, and ta-da!
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+import numpy.linalg as nla #scipy also provides linear algebra capabilities
+import matplotlib.pyplot as plt
+
+#use order = 'F' to enter matrix in Fortran mode, which is by columns, to match
+#R's style. Python, by default uses C-style entry (order = 'C'), which is by rows.
+B = np.array([0.75, 0.05, 0.20, 0.20, 0.6, 0.2, 0.4, 0.2, 0.4]).reshape(-1,3, order = 'F') 
+
+eigensys = nla.eig(B)
+eigensys[0] #eigenvalues
+v1 = eigensys[1][:,0] #first eigenvector
+v1 / np.sum(v1)
+```
+
+
+
+We can also iterate the equation and get to the equilibrium that way:
+
+```{r}
+
+X <- data.frame("Republicans"=1/3,"Democrats" = 1/3, "Independents" = 1/3)  #equal proportions
+
+for(i in 1:100){
+  Xp <- as.vector(B%*%t(X[i,]))
+  #names(Xp) <- names(X)
+  X <- rbind(X, Xp)
+}
+
+matplot(X, type = "l", pch = 1:3, ylim = c(0,1), xlab="Time", ylab= "Percent in State", lty=1, lwd=2)
+legend("topright", c("Republican","Democrat","Independent"), col=c("black","green","red"), lty=1)
+```
+
+```{python}
+X =  pd.DataFrame({'Republicans': [1/3], 'Democrats': [1/3], 'Independents': [1/3]})
+
+for i in range(100):
+  Xp = B @ X.iloc[i] #numpy uses @ for matrix multiplication
+  X = X.append(pd.DataFrame(Xp.reshape(1,-1), columns = list(X)), ignore_index = True)
+
+X.plot()
+plt.xlabel('Time')
+plt.ylabel('Percent in State')
+plt.ylim(0,1)
+plt.show()
+plt.close()
+```
+
+More interestingly, Markov chains can be used to simulate stochastic behavior. In this scenario, we use *probability* to simulate what occurs in the system. How do you think we would do this? Try to do this for the above system and plot the dynamics!!!
+
+Sometimes, there may be a very low probability mass of particular events occurring. In these cases we may want to use a method tau leaping developed for use in the Gillespie algorithm. See [here](https://en.wikipedia.org/wiki/Tau-leaping) for details on this method and the efficient step size algorithm for tau leaping.
+
+Finally, the Metropolis-Hastings algorithm is often combined with Markov chain-Monte Carlo (MCMC) simulation to help search parameter space. The Metropolis-Hastings algorithm is essentially a way to propose $\mathbb{x}_{t+1}$ and decide if the chain should move to that new state, or simply stay put.  When a MCMC simulation converges we see *stationarity*, or essence we observe white noise around a fixed point (which is hopefully the appropriate estimate of a parameter.) See [here](https://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm) for details on the Metropolis-Hastings algorithm.
+
+# Using the Gillespie Algorithm
+
+We briefly discussed the Gillespie algorithm for simulating stochastic dynamic systems using Markov chains. Essentially, we determine the expected number of "reactions" to occur in some time step and then we pick one of those reactions depending its "probability mass." Returning to the political example we used before. Recall that the following transitions were declared:
+
+$$
+R \xrightarrow{0.2} I \\
+R \xrightarrow{0.05} D \\
+I \xrightarrow{0.2} R \\
+I \xrightarrow{0.2} D \\
+D \xrightarrow{0.4} R \\
+D \xrightarrow{0.2} I
+$$
+
+Thus the probability mass at any time $t$ would be, e.g., $0.2 R(t)$ for a republican becoming a democrat. Using the probabily mass for 6 reactions, we can use the algorithm to look at the stochastic behavior of the system. We do this in this manner:
+
+```{r}
+state <- c("R"=300,"I"=300, "D"=300) #initial state
+system <- list("state" = state, "Time" = 0)
+  
+probMass <- function(state) c(0.2*state[1], 0.05*state[1], 0.2*state[2], 0.2*state[2], 0.4*state[3], 0.2*state[3])
+
+update <- function(theta){
+  with(theta,{
+  p <- unlist(probMass(state))
+  P <- cumsum(c(0,p/sum(p))) #convert to CDF by normalizing
+  rand <- runif(1)
+  rxn <- max(which(P < rand))
+  rxnVec <- rep(0,6)
+  rxnVec[rxn] <- 1
+  transition <- matrix(c(-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1), nrow = 3)
+  #as.vector in the next command is not necessary if you don't care about keeping a labelled vector
+  list(state + as.vector(transition %*% rxnVec), "Time" = Time  - log(runif(1))/sum(p))
+  })
+}
+
+Pol <- data.frame(t(unlist(system)))
+clock <- system.time(
+  while(max(Pol$Time) <= 7){
+    i <- nrow(Pol)
+    out <- update(list(state = Pol[i,1:3], Time = Pol$Time[i]))
+    Pol <- rbind(Pol, data.frame(t(unlist(out))))
+  }
+)
+
+colnames(Pol)[1:3] <- c("R","I","D")
+
+library(ggplot2)
+library(reshape2)
+
+plotData <- melt(Pol, id = "Time", variable.name = "Party", value.name = "Count")
+plotData$Fraction <- plotData$Count/900
+ggplot(plotData, aes(x = Time, y = Fraction, group = Party, color = Party)) + geom_line() + theme_bw() + ggtitle("Example of Stochastic System")
+
+```
+```{python}
+import time as time
+
+state = pd.DataFrame({"R":[300],"I":[300], "D":[300]}) #initial state
+system = {"state":state, "Time": 0}
+
+def probMass(state): return np.array([0.2*state['R'], 0.05*state['R'], 0.2*state['I'], 0.2*state['I'], 0.4*state['D'], 0.2*state['D']]).reshape(-1)
+
+def update(theta):
+  state, Time = theta.values()
+  pr = probMass(state)
+  P = pr / pr.sum()
+  rxnIndex = np.random.choice(range(6), p=P)
+  rxnVec = np.zeros(pr.size)
+  rxnVec[rxnIndex] = 1
+  transition = np.array([-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1]).reshape(3,-1,order='F')
+  return {'state': state + transition @ rxnVec, 'Time': Time - np.log(np.random.uniform())/pr.sum()}
+
+Pol = pd.DataFrame(columns=['Time', 'R', 'I', 'D'])
+Pol = Pol.append(pd.DataFrame({'Time':system['Time'],'R':system['state']['R'], 'I':system['state']['I'], 'D':system['state']['D']}), ignore_index = True)
+
+startMe = time.process_time()
+
+while system['Time'] <= 7:
+  system = update(system)
+  Pol = Pol.append(pd.DataFrame({'Time':system['Time'],'R':system['state']['R'], 'I':system['state']['I'], 'D':system['state']['D']}), ignore_index = True)
+  
+stopMe = time.process_time()
+runTime = stopMe - startMe
+
+Pol.iloc[:,1:4] = Pol.iloc[:,1:4]/900 #convert to fractional data
+
+Pol.plot(x = 'Time')
+plt.xlabel('Time')
+plt.ylabel('Fraction')
+plt.title('Example of a Stochastic System')
+plt.show()
+plt.close()
+```
+Note that the system has very similar time dynamics compared to Figure 6.5 in your book. 
+
+# Tau-leaping algorithm
+
+The Gillespie algorithm however took `r nrow(Pol)` steps in R and `r nrow(reticulate::py$Pol)` in Python to simulate the system, which isn't very computationally efficient (it took `r clock["elapsed"]` and `r reticulate::py$runTime` seconds in R and Python, respectively). This is particularly true when there are relatively minor changes in the system after around $t = 3$ (i.e., the steady state has been reached). To take advantage of this, we can use the "tau leaping" algorithm. Let's try this algorithm:
+
+```{r}
+
+transProb <- function(state, variance = F) colSums(t(matrix(c(-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1), nrow = 3)^(2^variance) %*% diag(c(0.2,0.05,0.2,0.2,0.4,0.2)))) * state
+
+#g is the vector of the highest order of a reaction in the system
+#all of our are linear so g = rep(1, 3)
+update.leaping <- function(theta, pVec, epsilon = 0.03, g = rep(1,3)){
+  with(theta,{
+    mu <- transProb(state)
+    var <- transProb(state, T)
+    L <- sapply(epsilon*state/g, max, 1)
+    tau <- min(L/abs(mu), L^2/var) 
+    ### Now advance the chain 
+    rxnVec <- rpois(6, unlist(probMass(state))*tau)
+    transition <- matrix(c(-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1), nrow = 3)
+    out <- state + as.vector(transition %*% rxnVec)
+    #if we get too large of a step and produce a negative value
+    #cut tau in half and try again
+    while(min(out) < 0){
+      tau <- tau/2
+      rxnVec <- rpois(6, unlist(probMass(state, ...))*tau)
+      out <- state + as.vector(transition %*% rxnVec)
+    }
+    list(state + as.vector(transition %*% rxnVec), "Time" = Time  + tau)
+  })
+}
+
+Pol2 <- data.frame(t(unlist(system)))
+clock2 = system.time(
+  while(max(Pol2$Time) <= 7){
+    i <- nrow(Pol2)
+    out <- update.leaping(list(state = Pol2[i,1:3], Time = Pol2$Time[i]), c(0.2,0.05,0.2,0.2,0.4,0.2))
+    Pol2 <- rbind(Pol2, data.frame(t(unlist(out))))
+  }
+)
+
+colnames(Pol2)[1:3] <- c("R","I","D")
+
+plotData <- melt(Pol2, id = "Time", variable.name = "Party", value.name = "Count")
+plotData$Fraction <- plotData$Count/900
+ggplot(plotData, aes(x = Time, y = Fraction, group = Party, color = Party)) + geom_line() + theme_bw() + ggtitle("Example of Stochastic System, tau leaping")
+
+```
+
+
+```{python}
+
+def transProb(state, variance = False): return (np.array([-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1]).reshape(3,-1,order='F')**(2**variance) @ np.diag([0.2,0.05,0.2,0.2,0.4,0.2])).sum(axis=1) * state.to_numpy().reshape(-1)
+
+def update_leaping(theta, epsilon = 0.03, g = np.repeat(1,3)):
+  state, Time = theta.values()
+  mu = transProb(state)
+  var = transProb(state, variance=True)
+  L = np.maximum(epsilon*state/g,1)
+  tau = np.min(np.concatenate((L/np.abs(mu), L**2/var)))
+  #advance the chain
+  rxnVec = np.random.poisson(probMass(state)*tau, 6)
+  transition = np.array([-1,1,0,-1,0,1,1,-1,0,0,-1,1,1,0,-1,0,1,-1]).reshape(3,-1,order='F')
+  out = state + transition @ rxnVec
+  #failsafe to keep values positive
+  while (np.min(out) < 0).any() :
+    tau = tau/2 #cut time step in half
+    rxnVec = np.random.poisson(probMass(state)*tau, 6)
+    out = state + transition @ rxnVec
+  return {'state': out, 'Time': Time+tau}
+    
+
+state = pd.DataFrame({"R":[300],"I":[300], "D":[300]}) #initial state
+system = {"state":state, "Time": 0}
+  
+Pol2 = pd.DataFrame(columns=['Time', 'R', 'I', 'D'])
+Pol2 = Pol2.append(pd.DataFrame({'Time':system['Time'],'R':system['state']['R'], 'I':system['state']['I'], 'D':system['state']['D']}), ignore_index = True)
+
+startMe2 = time.process_time()
+
+while system['Time'] <= 7:
+  system = update_leaping(system)
+  Pol2 = Pol2.append(pd.DataFrame({'Time':system['Time'],'R':system['state']['R'], 'I':system['state']['I'], 'D':system['state']['D']}), ignore_index = True)
+  
+stopMe2 = time.process_time()
+runTime2 = stopMe2 - startMe2
+
+Pol2.iloc[:,1:4] = Pol2.iloc[:,1:4]/900 #convert to fractional data
+
+Pol2.plot(x = 'Time')
+plt.xlabel('Time')
+plt.ylabel('Fraction')
+plt.title('Example of a Stochastic System')
+plt.show()
+plt.close()
+
+```
+The tau-leaping algorithm only took `r nrow(Pol2)` steps in R and `r nrow(reticulate::py$Pol2)` in Python to simulate the system, which is *much* more computationally efficient (it took `r clock2["elapsed"]` and `r reticulate::py$runTime2` seconds in R and Python, respectively). 
+
+**NB: I have placed pdfs of the original Gillespie and tau-leaping articles in the Chapter 6 folder.**
+
