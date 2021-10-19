@@ -277,3 +277,145 @@ The tau-leaping algorithm only took `r nrow(Pol2)` steps in R and `r nrow(reticu
 
 **NB: I have placed pdfs of the original Gillespie and tau-leaping articles in the Chapter 6 folder.**
 
+# Using the Metropolis-Hastings Algorithm
+
+The last thing we will investigate with Markov chains is their use in searching parameter space. To search parameter space, we initialize the chain to initial state $\Theta_0$. We then will propose a new state based on a **proposal density**. Commonly, we might propose new values of the chain based on a multivariate normal distribution, however, other proposals kernels might be necessary depending on the problem. Furthermore we might need to constrain the proposal space if we know there are particular constraints on the parameters (e.g., $\gt0$). Once we propose a new state, we need to use an **acceptance algorithm**. A very common of these is the Metropolis-Hastings algorithm. The algorithm to update the chain works as follows:
+
+  1. The proposal density should be symmetric around the current state of the chain $\Theta$.
+  2. Generate a new proposal $\theta$.
+  3. Calculate the probability of the proposal relative to the current state, $\alpha = P(\theta)/P(\Theta)$.
+  4. Generate a random uniform $u$. If $u \gt \alpha$, reject the proposal. Append the "winning" state to the chain.
+  5. Iterate 2--4 until "stationarity" is achieved and sufficient samples are present to examine statistically.
+  
+To see how this works, let's use the method on a simple regression problem.
+
+```{r}
+
+x <- runif(100,0,10)
+y <- rnorm(100, 3*x + 2, 3)
+
+plot(x,y)
+
+chain <- c("slope"=0,"intercept"=0) #initialize chain
+
+Chain <- data.frame(t(chain))
+
+proposal <- function(theta, sd = 0.1) rnorm(length(theta),theta,sd)
+ll_theta <- function(theta, x, y) sum(dnorm(y,x*theta[1]+theta[2],log=T))
+
+nSteps <- 1000
+for(i in 1:nSteps){
+  old <- unlist(Chain[i,])
+  new <- proposal(old)
+  log_alpha <- ll_theta(new,x,y) - ll_theta(old,x,y)
+  next_prop <- if(log(runif(1)) > log_alpha) old else new
+  Chain <- rbind(Chain,next_prop)
+}
+
+Chain$Iteration <- seq_len(nrow(Chain))
+###plot the chain values
+plot(Chain)
+
+###still see significant autocorrelation for the intercept, iterate more
+Chain$Iteration <- NULL
+
+for(i in nrow(Chain):(nrow(Chain) + 1000)){
+  old <- unlist(Chain[i,])
+  new <- proposal(old)
+  log_alpha <- ll_theta(new,x,y) - ll_theta(old,x,y)
+  next_prop <- if(log(runif(1)) > log_alpha) old else new
+  Chain <- rbind(Chain,next_prop)
+}
+
+Chain$Iteration <- seq_len(nrow(Chain))
+
+plot(Chain)
+```
+```{python}
+import scipy.stats as stats
+
+x = np.random.uniform(0,10,100)
+y = np.random.normal(3*x+2,3,100)
+
+plt.scatter(x,y)
+
+chain = {"slope":0,"intercept":0} #initialize chain
+
+Chain = pd.DataFrame(chain, index = [0])
+
+def proposal(theta, sd = 0.1): return np.random.normal(theta, sd, theta.size)
+def ll_theta(theta, x, y): return np.sum(stats.norm.logpdf(y, x*theta[0] + theta[1]))
+
+nSteps = 1000
+
+for i in range(nSteps):
+  old = Chain.iloc[i].to_numpy()
+  new = proposal(old)
+  log_alpha = ll_theta(new, x, y) - ll_theta(old, x, y)
+  next_prop = old if np.log(np.random.uniform()) > log_alpha else new 
+  Chain = Chain.append(pd.DataFrame(next_prop.reshape(1,2), columns = ['slope','intercept']), ignore_index = True)
+    
+Chain.plot(subplots = True)
+plt.xlabel('Iteration')
+plt.show()
+plt.close()
+
+###still see significant autocorrelation for the intercept, iterate more
+for i in 1000 + np.arange(1000):
+  old = Chain.iloc[i].to_numpy()
+  new = proposal(old)
+  log_alpha = ll_theta(new, x, y) - ll_theta(old, x, y)
+  next_prop = old if np.log(np.random.uniform()) > log_alpha else new 
+  Chain = Chain.append(pd.DataFrame(next_prop.reshape(1,2), columns = ['slope','intercept']), ignore_index = True)
+  
+  
+Chain.plot(subplots = True)
+plt.xlabel('Iteration')
+plt.show()
+plt.close()
+
+```
+
+Okay, the chain looks pretty stationary at this point. Now we would typcally throw away early samples where we are worried about autocorrelation/non-stationarity, this is called the "burn-in." We can easily drop the first 1000 samples as burn-in. To further reduce autocorrelation, we can pick samples every $n$ iterations, this is called thinning. After discarding the the burn-in and thinning, we can look at the distributions of the parameters.
+
+```{r}
+FinalChain <- Chain[seq(1002,2002,by=10),] #take every 10th sample in the last 1000 iterations
+
+plot(FinalChain)
+
+summary(FinalChain)
+hist(FinalChain$slope,20, xlab="slope", main = NULL)
+hist(FinalChain$intercept,20, xlab="intercept", main = NULL)
+quantile(FinalChain$slope,c(0.025,0.975)) #95% CI of slope
+quantile(FinalChain$intercept,c(0.025,0.975)) #95% CI of intercept
+
+summary(lm(y ~ x))
+```
+
+
+```{python}
+FinalChain = Chain.iloc[np.arange(1001,2001, 10)] #take every 10th sample in the last 1000 iterations
+
+FinalChain.plot(subplots = True)
+plt.show()
+plt.close('all')
+
+plt.hist(FinalChain.slope, bins = 20)
+plt.show()
+plt.close()
+
+plt.hist(FinalChain.intercept, bins = 20)
+plt.show()
+plt.close()
+
+np.mean(FinalChain, axis = 0)
+np.median(FinalChain, axis = 0)
+
+np.quantile(FinalChain.slope, [0.025,0.975]) #95% CI of slope
+np.quantile(FinalChain.intercept, [0.025,0.975]) #95% CI of intercept
+
+import statsmodels.formula.api as sfa
+sfa.ols('y ~ x', pd.DataFrame({'x':x, 'y':y})).fit().summary()
+
+
+```
