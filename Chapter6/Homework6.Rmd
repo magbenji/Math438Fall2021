@@ -1,0 +1,365 @@
+---
+title: "Homework 6"
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(),'%d-%b-%y')`"
+output: 
+  html_notebook:
+    toc: true
+---
+
+#Simulating an SIR model using a Markov Chain
+
+This homework revolved around looking at stochastic dynamics produced by simulating a discrete system of equations using a Markov chain. Recollect that the SIR system is 
+
+$$
+\Delta S = -\beta S \frac{I}{N} \\
+\Delta I = \beta S \frac{I}{N} - \gamma I \\
+(\Delta R = \gamma I).
+$$
+Also, remember that it isn't necessary to track the changes in the $R$ (recovered) class because it is a closed system, i.e., $N = S + I + R$ is conserved. 
+
+---------------------------
+
+# Comparing the Gillespie Algorithm with tau Leaping
+
+The first part of the homework asks you to compare results from the Gillespie algorithm and the tau-leaping algorithm. Parameters for the system are as follows:
+
+  1. $N = 500$
+  2. $\beta = 1/5$
+  3. $\gamma = 2/15$
+  4. $S(0) = 499, I(0)=1$.
+
+Finally, the Markov chains should stop once $I = 0$ and 20 replicates of each algorithm should be run. Let's set up the code to run the two algorithms. 
+
+## Writing the Alogorithms
+
+The Gillespie algorithm:
+
+```{r Gillespie}
+
+###probMass should return the rate of a particular reaction for a current state of the chain
+###there are 2 reactions in this system: infection and recovery  
+probMass <- function(state, beta = 1/5, gamma = 2/15, N = 500) c(beta*state[1]*state[2]/N, gamma*state[2])
+
+update <- function(theta, ...){
+  with(theta,{
+  p <- unlist(probMass(state, ...))
+  P <- cumsum(c(0,p/sum(p))) #convert to CDF by normalzing
+  rand <- runif(1)
+  rxn <- max(which(P < rand))
+  rxnVec <- rep(0,2)
+  rxnVec[rxn] <- 1
+  transition <- matrix(c(-1,1,0,-1), nrow = 2)
+  #as.vector in the next command is not necessary if you don't care about keeping a labelled vector
+  list(state + as.vector(transition %*% rxnVec), "Time" = Time  - log(runif(1))/sum(p))
+  })
+}
+
+
+#test the alogrithm
+state <- c("S"=499,"I"=1) #initial state
+system <- list("state" = state, "Time" = 0)
+
+update(system)
+```
+
+It looks like the Gillespie algorithm worked. Now we define the tau leaping algorithm:
+
+```{r tau leaping}
+
+#transProb should return either the net change or the "variance" (squared) change
+#for our system the change is given in the orginal equations, again, we have 2 particles/species in 
+#this system (S,I) that we need to calculate this for
+transProb <- function(state, beta = 1/5, gamma = 2/15, N = 500, variance=F) if(!variance) c(-beta*state[1]*state[2]/N,  beta*state[1]*state[2]/N - gamma*state[2]) else c(beta/N*state[1]*state[2],  (beta/N)*state[1]*state[2] + gamma*state[2])
+  
+  
+#g is the vector of the highest order of a reaction in the system
+#all of our reactions are nonlinear of second order.
+update.leaping <- function(theta, pVec, epsilon = 0.03, g = c(2,2), ...){
+  with(theta,{
+    mu <- transProb(state, ...)
+    V <- transProb(state, variance=T, ...)
+    L <- sapply(epsilon*state/g, max, 1)
+    tau <- min(L/abs(mu), L^2/V) 
+    ### Now advance the chain 
+    rxnVec <- rpois(length(g), unlist(probMass(state, ...))*tau)
+    transition <- matrix(c(-1,1,0,-1), nrow = 2)
+    out <- state + as.vector(transition %*% rxnVec)
+    #if we get too large of a step and produce a negative value
+    #cut tau in half and try again
+    huh <<- out
+    while(min(out) < 0){
+      tau <- tau/2
+      rxnVec <- rpois(length(g), unlist(probMass(state, ...))*tau)
+      out <- state + as.vector(transition %*% rxnVec)
+    }
+    list(out, "Time" = Time  + tau)
+  })
+}
+
+#test it
+update.leaping(system)
+```
+
+It looks like both of the algorithms are working as expected.
+
+## Simulation and Comparison
+
+So the problem asks for 20 iterations of each algorithm. We can handle this using a single for loop. Note that, because the stopping condition for the chain is $I = 0$, we use a `while` loop to iterate the Markov chains.
+
+```{r}
+
+set.seed(39457)
+
+finalData <- data.frame(Method = NA, Iteration = NA, S = NA, I = NA, Time = NA)
+finalData <- finalData[0,]
+for(j in 1:20){
+  SIR <- data.frame(t(unlist(system)))
+  names(SIR) <- c("S","I","Time")
+  i <- 1
+  while( SIR$I[i] > 0){
+    current <- list(state = unlist(SIR[i,1:2]), Time = SIR$Time[i])
+    out <- update.leaping(current)
+    SIR <- rbind(SIR, data.frame(t(unlist(out))))
+    i <- nrow(SIR)
+  }
+  
+  SIR$Method = "Tau"
+  SIR$Iteration = j
+  
+  finalData <- rbind(finalData,SIR)
+  
+  SIR <- data.frame(t(unlist(system)))
+  names(SIR) <- c("S","I","Time")
+  i <- 1
+  while( SIR$I[i] > 0){
+    current <- list(state = unlist(SIR[i,1:2]), Time = SIR$Time[i])
+    out <- update(current)
+    SIR <- rbind(SIR, data.frame(t(unlist(out))))
+    i <- nrow(SIR)
+  }
+  
+  SIR$Method <- "Gillespie"
+  SIR$Iteration <- j
+  
+  finalData <- rbind(finalData,SIR)
+}
+
+```
+
+-------------------
+
+How many iterations did it take each algorithm to complete?
+
+Here is the count of the steps each algorithm took to finish:
+```{r}
+IterCount <- xtabs(rep(1,nrow(finalData)) ~ Iteration + Method, data = finalData)
+IterCount
+```
+
+ We can also just get the average number of iteration it took per simulation and how often there wasn't a true epidemic (I set a threshold of 50 iterations):
+ 
+```{r}
+table(finalData$Method)/20
+colSums(IterCount > 50)/20
+```
+We can see that the average is not very different for the two methods for this system. Both of them resulted in no outbreak in 50% of the simulations.
+
+-------------------
+
+How many people got sick on average? 
+
+We can easily tabulate how many people got sick in each simulation. I'll use the `dplyr` package to do this.
+
+```{r}
+library(dplyr)
+
+finalData %>% group_by(Method,Iteration) %>% filter(S == min(S) & I == 0) -> outbreakSize
+outbreakSize$R <- 500 - outbreakSize$S
+
+xtabs(R ~ Iteration + Method, data=outbreakSize)
+colMeans(xtabs(R ~ Iteration + Method, data=outbreakSize))
+
+outbreaksOnly <- outbreakSize[outbreakSize$R > 50,]
+aggregate(outbreaksOnly[,"R",drop=F], outbreaksOnly[,"Method",drop=F], mean)
+```
+
+We can see that with the epidemics that fizzled, the average number of sick people is ~130, while for "full" epidemics it is around 285. We see virtually no difference between the algorithms here again.
+
+--------------------
+
+How long on average did each outbreak last?
+
+To answer this, we can repeat the previous block of code, this time extracting the value of time at the end of the epidemic.
+
+```{r}
+xtabs(Time ~ Iteration + Method, data=outbreakSize)
+colMeans(xtabs(Time ~ Iteration + Method, data=outbreakSize))
+aggregate(outbreaksOnly[,"Time",drop=F], outbreaksOnly[,"Method",drop=F], mean)
+```
+
+We can see that the algorithms once again agree pretty well. The average number of time steps was around 77 for all iterations, while for the cases where there were outbreaks the average was around ~141 time steps.
+
+----------------------------
+
+# Characterizing a Stochastic Outbreak
+
+In this portion of the homework, you were asked to simulate to simulate the system a number of times using tau leaping and compare the results. First, let's do the full simulation of 1000 epidemics.
+
+```{r}
+set.seed(545756)
+
+finalData <- data.frame(Iteration = NA, S = NA, I = NA, Time = NA)
+finalData <- finalData[0,]
+for(j in 1:1000){
+  SIR <- data.frame(t(unlist(system)))
+  names(SIR) <- c("S","I","Time")
+  i <- 1
+  while( SIR$I[i] > 0){
+    current <- list(state = unlist(SIR[i,1:2]), Time = SIR$Time[i])
+    out <- update.leaping(current)
+    SIR <- rbind(SIR, data.frame(t(unlist(out))))
+    i <- nrow(SIR)
+  }
+  SIR$Iteration = j
+  
+  finalData <- rbind(finalData,SIR)
+}
+
+```
+
+
+------------
+
+##Plotting the Epidemic Curves
+
+We want to do two things here: 1) plot all the epidemic curves that results from our simulation, and 2) plot the solution of the discrete system as well.
+
+```{r}
+
+library(ggplot2)
+
+###I want to color the true outbreaks differently
+finalData %>% group_by(Iteration) %>% mutate(Outbreak = min(S) < 400)  -> finalData
+
+##Create the discrete solution
+discreteSol <- data.frame(S = 499, I = 1, Time = 0)
+i <- 1
+while(discreteSol$I[i] >= 1){
+  newS <- discreteSol$S[i] - 1/5 * discreteSol$S[i] * discreteSol$I[i]/500
+  newI <- discreteSol$I[i] + 1/5 * discreteSol$S[i] * discreteSol$I[i]/500 - 2/15 * discreteSol$I[i]
+  discreteSol <- rbind(discreteSol, data.frame(S=newS,I=newI,Time = discreteSol$Time[i] + 1))
+  i <- nrow(discreteSol)
+}
+discreteSol$Iteration = 1
+discreteSol$Outbreak = T
+
+g <- ggplot(finalData, aes(x=Time, y=I, group = Iteration, color = Outbreak))
+g + geom_line(alpha = 0.2) + theme_bw() + scale_color_manual(values = c("red","gray")) + geom_line(data=discreteSol, col="black", lwd =1) + geom_smooth(data = subset(finalData,Outbreak == T), aes(group=NULL), color = "blue", fill="lightblue") + ggtitle("Dynamics of Stochastic SIR")
+
+
+```
+
+We can see that there is a large amount of variability in this system. Furthermore, the smoothed version of the outbreak dynamics (blue) is considerably different than the deterministic discrete system. 
+
+##Summary of the Outbreaks
+
+Next, the problem asks for the mean and variance of the number of sick people, the time to peak epidemic, and duration. Let's find those quantities:
+
+```{r}
+
+finalData %>% group_by(Iteration) %>% mutate(Size = max(500 - S - I), Duration = max(Time)) -> finalData
+finalData %>% group_by(Iteration) %>% filter(I == max(I)) %>% filter(Time == min(Time)) -> subData
+
+summary(subData[,c("Size","Time","Duration")])
+
+summary(subData[subData$Outbreak,c("Size","Time","Duration")])
+```
+
+Above are the summaries for the final size, time to peak, and duration of the outbreak, respectively. The second set of output is for the case of an outbreak actually happening. When there is actually an outbreak, we can expect the about 287 people to get sick (57.4%), with the max number of infections occurring at $t=66$, and lasting until $t=156$.
+
+## Reducing N to 100
+
+You were asked to reduce N to 100 and simulate the percentage of people who get sick. First run the simulations:
+
+```{r}
+set.seed(548796)
+
+n100 <- data.frame(Iteration = NA, S = NA, I = NA, Time = NA)
+n100 <- n100[0,]
+
+system2 <- system
+system2$state[1] <- 99
+
+for(j in 1:100){
+  SIR <- data.frame(t(unlist(system2)))
+  names(SIR) <- c("S","I","Time")
+  i <- 1
+  while( SIR$I[i] > 0){
+    current <- list(state = unlist(SIR[i,1:2]), Time = SIR$Time[i])
+    out <- update.leaping(current, N=100)
+    SIR <- rbind(SIR, data.frame(t(unlist(out))))
+    i <- nrow(SIR)
+  }
+  SIR$Iteration = j
+  
+  n100 <- rbind(n100,SIR)
+}
+
+```
+
+Now to find the proportion that got sick:
+
+```{r}
+n100 %>% group_by(Iteration) %>% mutate(Size = max(100 - S - I), Outbreak = Size > 20) %>% filter(Time == max(Time)) -> sub100
+
+summary(sub100[,"Size"])
+summary(sub100[sub100$Outbreak,"Size"])
+
+plotIt <- data.frame("N"="100",  sub100[sub100$Outbreak,"Size"]/100)
+plotIt <- rbind(plotIt, data.frame("N"="500", subData[subData$Outbreak,"Size"]/500))
+
+g2 <- ggplot(plotIt, aes(x=N, y=Size))
+g2 + geom_violin() + theme_bw() + geom_jitter(alpha =0.2) + ylab("Proportion Sick")
+```
+
+Looking at the violin plots of the two population sizes we can see that decreasing the population size incresease the variance in the proportion of individuals that get sick.
+
+## Increasing gamma to 2/11
+
+The final task was to set $\gamma = 2/11$ and compare the proportion of the time an outbreak occurred (and set $N=100$ again). So let's simulate the system again:
+
+```{r}
+set.seed(234534)
+
+g2_11 <- data.frame(Iteration = NA, S = NA, I = NA, Time = NA)
+g2_11 <- g2_11[0,]
+
+for(j in 1:100){
+  SIR <- data.frame(t(unlist(system)))
+  names(SIR) <- c("S","I","Time")
+  i <- 1
+  while( SIR$I[i] > 0){
+    current <- list(state = unlist(SIR[i,1:2]), Time = SIR$Time[i])
+    out <- update.leaping(current, gamma = 2/11)
+    SIR <- rbind(SIR, data.frame(t(unlist(out))))
+    i <- nrow(SIR)
+  }
+  SIR$Iteration = j
+  
+  g2_11 <- rbind(g2_11,SIR)
+}
+
+```
+
+Now find the proportion of the time an outbreak occurred:
+
+```{r}
+
+g2_11 %>% group_by(Iteration) %>% mutate(Size = max(500 - S - I), Outbreak = Size > 100) %>% filter(Time == max(Time)) -> sub2_11
+
+table(sub2_11$Outbreak)/nrow(sub2_11)
+table(subData$Outbreak)/nrow(subData)
+```
+
+We can see that the proportion of the time an outbreak occurred changed drastically by changing $\gamma = 2/15$ to $\gamma = 2/11$. Why do you think that is?
