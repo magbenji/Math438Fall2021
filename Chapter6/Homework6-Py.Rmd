@@ -1,0 +1,367 @@
+---
+title: "Homework 6"
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(),'%d-%b-%y')`"
+output: 
+  html_notebook:
+    toc: true
+---
+
+# Simulating an SIR model using a Markov Chain
+
+This homework revolved around looking at stochastic dynamics produced by simulating a discrete system of equations using a Markov chain. Recollect that the SIR system is 
+
+$$
+\begin{align}
+\Delta S &= -\beta S \frac{I}{N} \\
+\Delta I &= \beta S \frac{I}{N} - \gamma I \\
+(\Delta R &= \gamma I).
+\end{align}
+$$
+Also, remember that it isn't necessary to track the changes in the $R$ (recovered) class because it is a closed system, i.e., $N = S + I + R$ is conserved. 
+
+---------------------------
+
+# Comparing the Gillespie Algorithm with tau Leaping
+
+The first part of the homework asks you to compare results from the Gillespie algorithm and the tau-leaping algorithm. Parameters for the system are as follows:
+
+  1. $N = 500$
+  2. $\beta = 1/5$
+  3. $\gamma = 2/15$
+  4. $S(0) = 499, I(0)=1$.
+
+Finally, the Markov chains should stop once $I = 0$ and 20 replicates of each algorithm should be run. Let's set up the code to run the two algorithms. 
+
+## Writing the Alogorithms
+
+The Gillespie algorithm:
+
+```{python Gillespie}
+import pandas as pd
+import numpy as np
+import numpy.linalg as nla #scipy also provides linear algebra capabilities
+import matplotlib.pyplot as plt
+
+def probMass(state, beta = 1/5, gamma = 2/15, N = 500): return np.array([beta*state['S']*state['I']/N, gamma*state['I']]).reshape(-1)
+
+
+def update(theta, **kwargs):
+  state, Time = theta.values()
+  pr = probMass(state, **kwargs)
+  P = pr / pr.sum()
+  rxnIndex = np.random.choice(range(2), p=P)
+  rxnVec = np.zeros(pr.size)
+  rxnVec[rxnIndex] = 1
+  transition = np.array([-1,1,0,-1]).reshape(2,-1,order='F')
+  return {'state': state + transition @ rxnVec, 'Time': Time - np.log(np.random.uniform())/pr.sum()}
+
+state0 = pd.DataFrame({"S":[499],"I":[1]}) #initial state
+system0 = {"state":state0, "Time": 0}
+
+update(system0)
+```
+
+It looks like the Gillespie algorithm worked. Now we define the tau leaping algorithm:
+
+```{python tau leaping}
+
+def transProb(state, variance = False,  beta = 1/5, gamma = 2/15, N = 500): return (np.array([-1,1,0,-1]).reshape(2,-1,order='F')**(2**variance) @ np.diag([beta*state['I'].values[0]/N,gamma])).sum(axis=1) * state.to_numpy().reshape(-1)
+
+def update_leaping(theta, epsilon = 0.03, g = np.array([2,2]), **kwargs):
+  state, Time = theta.values()
+  mu = transProb(state, **kwargs)
+  var = transProb(state, variance=True)
+  L = np.maximum(epsilon*state/g,1)
+  tau = np.min(np.concatenate((L/np.abs(mu), L**2/var)))
+  #advance the chain
+  rxnVec = np.random.poisson(probMass(state, **kwargs)*tau, 2)
+  transition = np.array([-1,1,0,-1]).reshape(2,-1,order='F')
+  out = state + transition @ rxnVec
+  #failsafe to keep values positive
+  while (np.min(out) < 0).any() :
+    tau = tau/2 #cut time step in half
+    rxnVec = np.random.poisson(probMass(state)*tau, 2)
+    out = state + transition @ rxnVec
+  return {'state': out, 'Time': Time+tau}
+
+
+update_leaping(system0)
+update_leaping(system0, epsilon = .2)
+```
+
+It looks like both of the algorithms are working as expected.
+
+## Simulation and Comparison
+
+So the problem asks for 20 iterations of each algorithm. We can handle this using a single for loop. Note that, because the stopping condition for the chain is $I = 0$, we use a `while` loop to iterate the Markov chains.
+
+```{python}
+
+np.random.seed(39457)
+
+finalData = pd.DataFrame(columns = ["Method","Iteration","S","I","Time"])
+for j in range(20):
+  SIR = pd.DataFrame(columns=['Time','S','I'])
+  SIR = SIR.append(pd.DataFrame({'Time': system0['Time'], 'S': system0['state']['S'], 'I': system0['state']['I']}), ignore_index = True)
+  
+  system = system0 #reset to initial condition
+  while SIR.I.iloc[-1]  > 0:
+    system = update_leaping(system)
+    SIR = SIR.append(pd.DataFrame({'Time': system['Time'], 'S': system['state']['S'], 'I': system['state']['I']}), ignore_index = True)
+  
+  SIR['Method'] = "Tau"
+  SIR['Iteration'] = j
+  
+  finalData = finalData.append(SIR,ignore_index=True)
+  
+  SIR = pd.DataFrame(columns=['Time','S','I'])
+  SIR = SIR.append(pd.DataFrame({'Time': system0['Time'], 'S': system0['state']['S'], 'I': system0['state']['I']}), ignore_index = True)
+  
+  system = system0 #reset to initial condition
+  while SIR.I.iloc[-1]  > 0:
+    system = update(system)
+    SIR = SIR.append(pd.DataFrame({'Time': system['Time'], 'S': system['state']['S'], 'I': system['state']['I']}), ignore_index = True)
+  
+  SIR['Method'] = "Gillespie"
+  SIR['Iteration'] = j
+  
+  finalData = finalData.append(SIR,ignore_index=True)
+
+
+```
+
+-------------------
+
+How many iterations did it take each algorithm to complete?
+
+Here is the count of the steps each algorithm took to finish:
+```{python}
+IterCount = pd.pivot_table(finalData[['Iteration','Method']], index = 'Iteration', columns = 'Method', aggfunc = len)
+IterCount
+```
+
+ We can also just get the average number of iteration it took per simulation and how often there wasn't a true epidemic (I set a threshold of 50 iterations):
+ 
+```{python}
+IterCount.mean(axis=0)
+(IterCount > 50).sum(axis=0)
+```
+We can see that the average number of iterations for the Gillespie algorithm without tau-leaping is fairly similar. Both of them resulted in no outbreak in about 50% of the simulations.
+
+-------------------
+
+How many people got sick on average? 
+
+We can easily tabulate how many people got sick in each simulation. 
+
+```{python}
+
+Recoveries = 500 - finalData.groupby(['Method','Iteration']).min().S
+
+Recoveries.groupby(level=0).mean()
+
+Recoveries[Recoveries > 50].mean()
+
+```
+
+We can see that with the epidemics that fizzled, the average number of sick people is ~120, while for "full" epidemics it is around 297. We see virtually no difference between the algorithms here again.
+
+--------------------
+
+How long on average did each outbreak last?
+
+To answer this, we can repeat the previous block of code, this time extracting the value of time at the end of the epidemic.
+
+```{python}
+
+OutbreakTimes  = finalData.groupby(['Method','Iteration']).max().Time
+
+OutbreakTimes
+OutbreakTimes.groupby(level=0).mean()
+OutbreakTimes[Recoveries > 50].groupby(level=0).mean()
+
+```
+
+We can see that the algorithms once again agree pretty well. The average time for the tau leaping algoritm is a bit higher, but remember that it took about 1/2 the computational steps to run for that duration.
+
+----------------------------
+
+# Characterizing a Stochastic Outbreak
+
+In this portion of the homework, you were asked to simulate to simulate the system a number of times using tau leaping and compare the results. First, let's do the full simulation of 1000 epidemics.
+
+```{python}
+
+np.random.seed(545756)
+
+finalData = pd.DataFrame(columns = ["Iteration","S","I","Time"])
+for j in range(1000):
+  SIR = pd.DataFrame({'Time': system0['Time'], 'S': [system0['state']['S'][0]], 'I': system0['state']['I'][0]})
+  
+  system = system0 #reset to initial condition
+  while SIR.I.iloc[-1]  > 0:
+    system = update_leaping(system)
+    SIR = SIR.append(pd.DataFrame({'Time': system['Time'], 'S': system['state']['S'], 'I': system['state']['I']}), ignore_index = True)
+  
+  SIR['Iteration'] = j
+  
+  finalData = finalData.append(SIR,ignore_index=True)
+
+```
+
+
+------------
+
+## Plotting the Epidemic Curves
+
+We want to do two things here: 1) plot all the epidemic curves that results from our simulation, and 2) plot the solution of the discrete system as well.
+
+```{python}
+import plotnine as p9
+import matplotlib.pyplot as plt
+
+finalData = pd.merge(finalData, finalData.groupby('Iteration')['S'].apply(lambda vals: np.min(vals) < 400).rename("Outbreak"),
+                      on = ['Iteration'])
+
+##Create the discrete solution
+discreteSol = pd.DataFrame({'S':[499], 'I':[1], 'Time':0})
+while discreteSol.I.iloc[-1] >= 1:
+  newS = discreteSol.S.iloc[-1] - 1/5 * discreteSol.S.iloc[-1] * discreteSol.I.iloc[-1]/500
+  newI = discreteSol.I.iloc[-1] + 1/5 * discreteSol.S.iloc[-1] * discreteSol.I.iloc[-1]/500 - 2/15 * discreteSol.I.iloc[-1]
+  discreteSol = discreteSol.append(pd.DataFrame({'S': [newS], 'I': [newI], 'Time': [discreteSol.Time.iloc[-1]+1]}), ignore_index = True)
+
+discreteSol['Iteration']=1
+discreteSol['Outbreak']=True
+
+finalData = finalData.astype({'Time':'float64', 'Iteration':'int64', 'S':'int64', 'I':'int64'})
+
+(
+p9.ggplot(finalData, p9.aes(x='Time',y='I',group='Iteration', color='Outbreak')) + p9.geom_line(alpha=0.2) + p9.theme_bw()
+  + p9.scale_color_manual(values = ["red","gray"]) 
+  + p9.geom_line(data=discreteSol, color="black", size=1) 
+  + p9.geom_smooth(data = finalData[finalData.Outbreak], mapping=p9.aes(x='Time', y='I'), inherit_aes=False, color = "blue", fill="lightblue", se=False, method="loess") ###need to get loess instead of GLM
+  + p9.ggtitle("Dynamics of Stochastic SIR")
+  )
+
+```
+
+We can see that there is a large amount of variability in this system. Furthermore, the smoothed version of the outbreak dynamics (blue) is considerably different than the deterministic discrete system. 
+
+## Summary of the Outbreaks
+
+Next, the problem asks for the mean and variance of the number of sick people, the time to peak epidemic, and duration. Let's find those quantities:
+
+```{python}
+
+Sizes = finalData.groupby('Iteration')['S'].apply(lambda x: 500 - min(x))
+Sizes.mean()
+Sizes.var()
+
+Durations = finalData.groupby('Iteration')['Time'].max()
+Durations.mean()
+Durations.var()
+
+PeakTime = finalData['Time'][finalData.groupby('Iteration')['I'].idxmax()]
+PeakTime = PeakTime.reset_index(drop=True)
+PeakTime.mean()
+PeakTime.var()
+
+#just outbreaks
+Sizes[Sizes > 50].mean()
+Sizes[Sizes > 50].var()
+
+Durations[Sizes > 50].mean()
+Durations[Sizes > 50].var()
+
+PeakTime[Sizes>50].mean()
+PeakTime[Sizes>50].var()
+
+```
+
+Above are the summaries for the final size, time to peak, and duration of the outbreak, respectively. The second set of output is for the case of an outbreak actually happening. When there is actually an outbreak, we can expect the about 290 people to get sick (58%), with the max number of infections occurring at $t=73.8$, and lasting until $t=167$.
+
+## Reducing N to 100
+
+You were asked to reduce N to 100 and simulate the percentage of people who get sick. First run the simulations:
+
+```{python}
+np.random.seed(546696)
+
+n100 = pd.DataFrame(columns = ["Iteration","S","I","Time"])
+
+#use a different initial state
+state100 = pd.DataFrame({"S":[99],"I":[1]}) #initial state
+system100 = {"state":state100, "Time": 0}
+
+
+for j in range(100):
+  SIR = pd.DataFrame({'Time': system100['Time'], 'S': [system100['state']['S'][0]], 'I': system100['state']['I'][0]})
+  
+  system = system100 #reset to initial condition
+  while SIR.I.iloc[-1]  > 0:
+    system = update_leaping(system, N=100)
+    SIR = SIR.append(pd.DataFrame({'Time': system['Time'], 'S': system['state']['S'], 'I': system['state']['I']}), ignore_index = True)
+  
+  SIR['Iteration'] = j
+  
+  n100 = n100.append(SIR,ignore_index=True)
+
+```
+
+Now to find the proportion that got sick:
+
+```{python}
+
+propSick = n100.groupby('Iteration')['S'].apply(lambda x: 1 - np.min(x)/100)
+
+propSick.mean()
+propSick.var()
+propSick[propSick > 0.2].mean()
+propSick[propSick > 0.2].var()
+
+plotIt = pd.DataFrame({'N':"100", 'propSick':propSick[propSick > 0.2]})
+plotIt = plotIt.append(pd.DataFrame({'N':"500", 'propSick':Sizes[Sizes > 100]/500 }))
+
+p9.ggplot(plotIt, p9.aes(x='N', y='propSick')) + p9.geom_violin() + p9.theme_bw() + p9.geom_jitter(alpha=0.2) + p9.ylab("Proportion Sick")
+
+```
+
+Looking at the violin plots of the two population sizes we can see that decreasing the population size increase the variance in the proportion of individuals that get sick.
+
+## Increasing gamma to 2/11
+
+The final task was to set $\gamma = 2/11$ and compare the proportion of the time an outbreak occurred (and set $N=100$ again). So let's simulate the system again:
+
+```{python}
+
+np.random.seed(234534)
+
+g2_11 = pd.DataFrame(columns = ["Iteration","S","I","Time"])
+
+for j in range(100):
+  SIR = pd.DataFrame({'Time': system0['Time'], 'S': [system0['state']['S'][0]], 'I': system0['state']['I'][0]})
+  
+  system = system0 #reset to initial condition
+  while SIR.I.iloc[-1]  > 0:
+    system = update_leaping(system, gamma = 2/11)
+    SIR = SIR.append(pd.DataFrame({'Time': system['Time'], 'S': system['state']['S'], 'I': system['state']['I']}), ignore_index = True)
+  
+  SIR['Iteration'] = j
+  
+  g2_11 = g2_11.append(SIR,ignore_index=True)
+
+```
+
+Now find the proportion of the time an outbreak occurred:
+
+```{python}
+
+Outbreaks = g2_11.groupby('Iteration')['S'].apply(lambda x: 500 - min(x) > 100)
+Outbreaks.sum()/100 #percent of time an outbreak happened
+
+#compare with the gamma = 2/15
+(Sizes > 100).sum()/1000
+```
+
+We can see that the proportion of the time an outbreak occurred changed drastically by changing $\gamma = 2/15$ to $\gamma = 2/11$. Why do you think that is?
