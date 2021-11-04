@@ -33,5 +33,3 @@ x[B] <- x[B] - d*multiplier
 
 B <- sort(union(setdiff(B, exit), enter))
 N <- setdiff(Cols, B)
-
-#repeat 39-54 until line 40 fails
