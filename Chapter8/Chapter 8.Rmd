@@ -1,0 +1,159 @@
+---
+title: "Chapter 8: Models with Graphs"
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output: 
+  html_notebook:
+    toc: TRUE
+---
+
+In this notebook, we show some basic usage of the `igraph` package for drawing and calculating certain properties of graphs.
+
+##Creating an Undirected Graph
+
+One way (among several) to create graphs with `igraph` is to use formula (`~`) notation. In this notation we can specify connections between nodes using a dash; for example, `~A-B` would make a simple network with two connected nodes A and B. We can also specify to distribute a connection using the `:` operator; for example, `~A-B:C` would make connections A-B, and A-C (but not B-C). Using a comma, we can specify different connections; for example, `~A-B,C-D` would make a network with 4 nodes and edges between A,B and C,D. We will use the `make_graph()` command to build the graph. We can get a listing of the vertices by using `V()` and of the edges using `E()`.  
+
+```{r}
+library(igraph)
+
+graph <- make_graph( ~ A-B-C-D-A, E-A:B:C:D,
+                     F-G-H-I-F, J-F:G:H:I,
+                     K-L-M-N-K, O-K:L:M:N,
+                     P-Q-R-S-P, T-P:Q:R:S,
+                     B-F, E-J, C-I, L-T, O-T, M-S,
+                     C-P, C-L, I-L, I-P)
+
+plot(graph)
+V(graph)
+E(graph)
+```
+
+
+##Making a Bipartite Graph
+
+Next, let's consider a problem where we want to study a bipartite graph, such as in the softball managers problem in the book. In the example here, we will use a simpler network that consists of vertices A, B, C, D having connections to vertices 1, 2, 3, 4. Here is the graph:
+
+```{r}
+graph <- make_graph(~ A-1, A-2, A-4, B-1, B-2, C-1, C-4, D-3, D-4)
+plot(graph)
+```
+
+Obviously this does not look anything like the drawing of bipartite graphs in the book. Let's ask R if our network is bipartite:
+```{r}
+is.bipartite(graph)
+```
+
+Clearly we need to change something to make our graph bipartite. One way to do this would be to use the `make_bipartite_graph()` constructor. A simpler solution is to ask R to do the work for us of determining the two groups of vertices. We can do this using the `bipartite_mapping()` function in the following manner:
+
+```{r}
+bipartite_mapping(graph)
+V(graph)$type <- bipartite_mapping(graph)$type
+is.bipartite(graph)
+```
+
+The second line in the above block takes the `type` designation (which is Boolean) from the mapping and assigns it as a property of the vertices. Once the vertices have a `type` variable that has two options, R recognizes the graph as bipartite. Let's see if the plot is correct now:
+
+```{r}
+plot(graph)
+```
+
+###Bipartite Layout for Plotting
+Our plot of the bipartite graph is no better. The way we set the layout to be the normal bipartite graph, is using the `layout` option in plotting. A layout just lists the $x,y$ coordinates of each vertex in a graph. `igraph` has a number of algorithms to determine nice coordinates (see `help("layout_")`). Also, if we wish to change the properties of our vertices, edges, labels, etc in a graph we can specify those in the plot command. Properties for vertices have the "vertex." prefix; edge properties  have the "edge." prefix. See `help("igraph.plotting")` for more details.
+
+Let's apply the bipartite layout to our graph. Furthermore, let's make the color and shape of the vertices dependent on which type of vertex it is (letters vs. numbers). Here is how that is done:
+
+```{r}
+plot(graph, layout = layout_as_bipartite, vertex.color = c("yellow","green")[V(graph)$type+1], vertex.shape = c("square","sphere")[V(graph)$type+1])
+```
+
+Now our graph looks much more like we would like it to.
+
+### Some Basic Properties/Functions
+
+Obviously, we want to use our graphs for modeling purposes. Let's try a few basic commands. First, we can easily get the adjacency matrix that represents our graph using the `as_adjacency_matrix()` command. Next, several of the problems in the book rely on determining the maximum matching set (matching is defined a set edges that have no two vertices in common; i.e., if there are $n$ edges in the set then there are, by definition, $2n$ unique vertices). R quickly returns **one** set that would satisfy the maximum matching problem using the `max_bipartite_match()` function. Note however, we can also check if other sets would satisfy maximum matching using the `is_max_matching()` function.
+
+```{r}
+as_adjacency_matrix(graph)
+max_bipartite_match(graph)
+is_max_matching(graph, c("2","B","A","C","1","4","3","D"))
+```
+
+There are many more of these types of functions included in the `igraph` package. If you are planning on using graphs for modeling, it is good to familiarize yourself with the functions and various other properties of graphs.
+
+##Creating Directed Graphs
+
+The other major type of graph that you may wish to work with is a directed graph. In `igraph` the direction of an edge is specified using the `+` sign. For example, specifying `A-+ B` would yield $A\rightarrow B$, specifying `A +- B` would yield $A \leftarrow B$, and `A +-+ B` gives $A \doublearrow B$. 
+
+In the book, details are given as to how the maximum matching problem can be used by solving a maximum flow problem on a directed graph. To do this, we begin at a source node `s` and travel to a target node `t` while passing through both sides of the bipartite graph. Let's recreate our previous undirected graph in a directed fashion to solve the maximum matching problem using the maximum flow. To do this, use the `graph_from_literal()` command as follows:
+
+```{r}
+dirgraph <- graph_from_literal(s-+A:B:C:D, A-+1:2:4, B-+1:2, C-+1:4, D-+3:4, 1:2:3:4-+t)
+plot(dirgraph)
+```
+
+As with our graph earlier, the layout is initially poor. If we want a layered layout, we can use the Sugiyama algorithm to produce the appropriate $x,y$ coordinates for our vertices. Let's store those coordinate in a new variable called `xycoords` using:
+
+```{r}
+xycoords <- layout_with_sugiyama(dirgraph)$layout
+```
+
+### Rotating a Graph
+
+We know that our `xycoords` has the coordinates for each vertex. If we want to rotate the graph to a particular orientation, we can use the following transformations:
+
+```{r}
+plot(dirgraph, layout = xycoords) #top to bottom
+plot(dirgraph, layout = xycoords[,2:1]) #right to left
+plot(dirgraph, layout = (xycoords %*% diag(c(1,-1)))) #bottom to top
+plot(dirgraph, layout = (xycoords %*% diag(c(1,-1)))[,2:1]) #left to right
+```
+
+### Maximum Flow
+
+It is simple to get the maximum flow from our directed graph:
+
+```{r}
+max_flow(dirgraph, source = "s", target = "t")
+```
+ The value of `$flow` above shows which edges are needed to produce a maximum flow in our network. Let's use the `delete_edges()` function to remove the unwanted edges and plot the result: 
+
+```{r}
+max.dirgraph <- delete_edges(dirgraph, which(max_flow(dirgraph, source = "s", target = "t")$flow == 0))
+plot(max.dirgraph, layout = xycoords)
+```
+
+Let's check that this is actually a solution to maximum matching by using the `is_max_matching()` function. To do this we first have to remove the unwanted nodes $s,t$ and get the appropriate edges.
+
+```{r}
+E(delete_vertices(max.dirgraph, c("s","t"))) #edges are A-4, B-2, C-1, D-3
+is_max_matching(graph, c("4","C","B","A","2","1","3","D"))
+```
+
+As we would expect, the maximum flow through our directed graph is indeed a maximum matching set for our bipartite graph. Can you explain what the logic is behind using maximum flow to solve bipartite matching? 
+
+##Some Othe Useful Commands
+
+As mentioned before, there are **many** different commands in the `igraph` packages. Here a few more that might come in handy!
+
+###Degree Distribution and Path Lengths
+
+Degree distributions and path length are often of interest when studying a particular graph. Here's how to get that information for a graph:
+
+```{r}
+degree(dirgraph)
+degree.distribution(dirgraph)
+distances(dirgraph) #all shortest pairwise vertex distances
+shortest_paths(dirgraph,"s","t") #a specific shortest path from s -> t
+```
+
+###Adding Weights to Edges
+
+Below is an example of adding weights to edges of a graph, and, subsequently plotting the graph in a way that shows the weight and changes the width of the arrow based on the weight.
+```{r}
+E(dirgraph)
+E(dirgraph)$weight <- c(1,1,1,1,rep(3,9),1,1,1,1)
+is.weighted(dirgraph)
+
+plot(dirgraph, layout = xycoords, edge.label = E(dirgraph)$weight, edge.width = E(dirgraph)$weight)
+```
+
