@@ -9,7 +9,7 @@ output:
 
 In this notebook, we show some basic usage of the `igraph` package for drawing and calculating certain properties of graphs.
 
-##Creating an Undirected Graph
+## Creating an Undirected Graph
 
 One way (among several) to create graphs with `igraph` is to use formula (`~`) notation. In this notation we can specify connections between nodes using a dash; for example, `~A-B` would make a simple network with two connected nodes A and B. We can also specify to distribute a connection using the `:` operator; for example, `~A-B:C` would make connections A-B, and A-C (but not B-C). Using a comma, we can specify different connections; for example, `~A-B,C-D` would make a network with 4 nodes and edges between A,B and C,D. We will use the `make_graph()` command to build the graph. We can get a listing of the vertices by using `V()` and of the edges using `E()`.  
 
@@ -29,7 +29,7 @@ E(graph)
 ```
 
 
-##Making a Bipartite Graph
+## Making a Bipartite Graph
 
 Next, let's consider a problem where we want to study a bipartite graph, such as in the softball managers problem in the book. In the example here, we will use a simpler network that consists of vertices A, B, C, D having connections to vertices 1, 2, 3, 4. Here is the graph:
 
@@ -57,7 +57,7 @@ The second line in the above block takes the `type` designation (which is Boolea
 plot(graph)
 ```
 
-###Bipartite Layout for Plotting
+### Bipartite Layout for Plotting
 Our plot of the bipartite graph is no better. The way we set the layout to be the normal bipartite graph, is using the `layout` option in plotting. A layout just lists the $x,y$ coordinates of each vertex in a graph. `igraph` has a number of algorithms to determine nice coordinates (see `help("layout_")`). Also, if we wish to change the properties of our vertices, edges, labels, etc in a graph we can specify those in the plot command. Properties for vertices have the "vertex." prefix; edge properties  have the "edge." prefix. See `help("igraph.plotting")` for more details.
 
 Let's apply the bipartite layout to our graph. Furthermore, let's make the color and shape of the vertices dependent on which type of vertex it is (letters vs. numbers). Here is how that is done:
@@ -80,9 +80,9 @@ is_max_matching(graph, c("2","B","A","C","1","4","3","D"))
 
 There are many more of these types of functions included in the `igraph` package. If you are planning on using graphs for modeling, it is good to familiarize yourself with the functions and various other properties of graphs.
 
-##Creating Directed Graphs
+## Creating Directed Graphs
 
-The other major type of graph that you may wish to work with is a directed graph. In `igraph` the direction of an edge is specified using the `+` sign. For example, specifying `A-+ B` would yield $A\rightarrow B$, specifying `A +- B` would yield $A \leftarrow B$, and `A +-+ B` gives $A \doublearrow B$. 
+The other major type of graph that you may wish to work with is a directed graph. In `igraph` the direction of an edge is specified using the `+` sign. For example, specifying `A-+ B` would yield $A\rightarrow B$, specifying `A +- B` would yield $A \leftarrow B$, and `A +-+ B` gives $A \leftrightarrow B$. 
 
 In the book, details are given as to how the maximum matching problem can be used by solving a maximum flow problem on a directed graph. To do this, we begin at a source node `s` and travel to a target node `t` while passing through both sides of the bipartite graph. Let's recreate our previous undirected graph in a directed fashion to solve the maximum matching problem using the maximum flow. To do this, use the `graph_from_literal()` command as follows:
 
@@ -131,11 +131,37 @@ is_max_matching(graph, c("4","C","B","A","2","1","3","D"))
 
 As we would expect, the maximum flow through our directed graph is indeed a maximum matching set for our bipartite graph. Can you explain what the logic is behind using maximum flow to solve bipartite matching? 
 
-##Some Othe Useful Commands
+## Minimum Vertex Cover
+
+To find the minimum vertex covers of a graph, we can look at the largest independent vertex set (the largest set of nodes that shares no edges). It can be shown that a largest independent vertex set is the complement of a minimum vertex cover. igraph has the `largest.independent.vertex.sets()` function, which we can then use to get minimum vertex covers like so: 
+
+```{r}
+
+graph <- make_graph(~ v1-v5, v1-v3, v5-v2, v5-v6, v3-v6, v6-v4, v4-v7, v6-v7, v7-v8, v8-v2) #this is figure 8.20 in the book
+
+largest.independent.vertex.sets(graph) #a list of largest independent vertex sets
+
+V(graph)[setdiff(V(graph),largest.independent.vertex.sets(graph)[[1]])] #get the complementary list of nodes to the largest independent vertex set, which is a minimum cover set
+
+#a larger example from above
+graph <- make_graph( ~ A-B-C-D-A, E-A:B:C:D,
+                     F-G-H-I-F, J-F:G:H:I,
+                     K-L-M-N-K, O-K:L:M:N,
+                     P-Q-R-S-P, T-P:Q:R:S,
+                     B-F, E-J, C-I, L-T, O-T, M-S,
+                     C-P, C-L, I-L, I-P)
+
+largest.independent.vertex.sets(graph)
+
+V(graph)[setdiff(V(graph),largest.independent.vertex.sets(graph)[[3]])]
+
+```
+
+## Some Othe Useful Commands
 
 As mentioned before, there are **many** different commands in the `igraph` packages. Here a few more that might come in handy!
 
-###Degree Distribution and Path Lengths
+### Degree Distribution and Path Lengths
 
 Degree distributions and path length are often of interest when studying a particular graph. Here's how to get that information for a graph:
 
@@ -146,7 +172,7 @@ distances(dirgraph) #all shortest pairwise vertex distances
 shortest_paths(dirgraph,"s","t") #a specific shortest path from s -> t
 ```
 
-###Adding Weights to Edges
+### Adding Weights to Edges
 
 Below is an example of adding weights to edges of a graph, and, subsequently plotting the graph in a way that shows the weight and changes the width of the arrow based on the weight.
 ```{r}
