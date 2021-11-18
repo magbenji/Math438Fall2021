@@ -1,0 +1,271 @@
+---
+title: "Chapter 8: Models with Graphs"
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output: 
+  html_notebook:
+    toc: TRUE
+---
+
+In this notebook, we show some basic usage of the Python `igraph` and `networkx` packages for drawing and calculating certain properties of graphs. Generally the strategy will be to construct the graph using igraph and then convert the graph for use in networkx.
+
+## Creating an Undirected Graph
+
+One way (among several) to create graphs with `igraph` is to use formula notation. In this notation we can specify connections between nodes using a dash; for example, `A-B` would make a simple network with two connected nodes A and B. We can also specify to distribute a connection using the `:` operator; for example, `A-B:C` would make connections A-B, and A-C (but not B-C). Using a comma, we can specify different connections; for example, `A-B,C-D` would make a network with 4 nodes and edges between A,B and C,D. We will use the `ig.Graph.Formula()` command to build the graph. The graph is then converted using `to_networkx()`. As a networkx graph, we can use `g.nodes()` and `g.edges()` to get a listing of each.  
+
+```{python}
+import igraph as ig
+import networkx as nx
+import matplotlib.pyplot as plt
+import numpy as np
+
+#use the igraph method for creation
+g = ig.Graph.Formula('A-B-C-D-A, E-A:B:C:D, F-G-H-I-F, J-F:G:H:I, K-L-M-N-K, O-K:L:M:N, P-Q-R-S-P, T-P:Q:R:S, B-F, E-J, C-I, L-T, O-T, M-S, C-P, C-L, I-L, I-P')
+
+gx = nx.Graph(g.to_networkx())
+gx = nx.relabel_nodes(gx, nx.get_node_attributes(gx,'name'))
+
+nx.draw(gx, with_labels = True)
+plt.show()
+plt.close()
+
+gx.nodes()
+gx.edges()
+gx.nodes['A'] #lookup a node
+gx['A']['D'] #lookup an edge
+
+np.array(gx.nodes()).size
+np.array(gx.edges()).size
+```
+
+
+## Making a Bipartite Graph
+
+Next, let's consider a problem where we want to study a bipartite graph, such as in the softball managers problem in the book. In the example here, we will use a simpler network that consists of vertices A, B, C, D having connections to vertices 1, 2, 3, 4. Here is the graph:
+
+```{python}
+
+g = ig.Graph.Formula('A-1, A-2, A-4, B-1, B-2, C-1, C-4, D-3, D-4')
+gx = nx.Graph(g.to_networkx())
+gx = nx.relabel_nodes(gx, nx.get_node_attributes(gx,'name'))
+
+nx.draw(gx, with_labels = True)
+plt.show()
+plt.close()
+```
+
+Obviously this does not look anything like the drawing of bipartite graphs in the book. Let's ask Python if our network is bipartite:
+```{python}
+nx.is_bipartite(gx)
+```
+
+Python seems to think the graph is bipartite but isn't plotting things the way we'd like. We'll need to set a node attribute "bipartite" to make this work. Here's how to do this in networkx:
+
+```{python}
+X, Y = nx.bipartite.sets(gx) #divide the graph into the 2 partitions X, Y
+X = dict.fromkeys(X, 0) #dictionary needed for setting attributes for vertices in X
+Y = dict.fromkeys(Y, 1) #dictionary needed for setting attributes for vertices in Y
+
+#set attributes for nodes like so:
+nx.set_node_attributes(gx,X,"bipartite")
+nx.set_node_attributes(gx,Y,"bipartite")
+
+gx.nodes['A'] #take a look at node A, it now has an attribute for bipartite
+```
+
+Once the vertices have a `bipartite` variable, we can check to see if the plot is correct now:
+
+```{python}
+nx.draw(gx, with_labels = True)
+plt.show()
+plt.close()
+
+```
+
+### Bipartite Layout for Plotting
+
+Our plot of the bipartite graph is no better. The way we set the layout to be the normal bipartite graph, is using the `nx.bipartite_layout()` function. A layout just lists the $x,y$ coordinates of each vertex in a graph. 
+
+Let's apply the bipartite layout to our graph. Furthermore, let's make the color and shape of the vertices dependent on which type of vertex it is (letters vs. numbers). Here is how that is done:
+
+```{python}
+
+group_0_nodes = [n for (n,group) in nx.get_node_attributes(gx,'bipartite').items() if group == 0]
+group_1_nodes = [n for (n,group) in nx.get_node_attributes(gx,'bipartite').items() if group == 1]
+
+#In order to get 2 shapes, you have plot the nodes separately
+pos = nx.bipartite_layout(gx, X)
+nx.draw_networkx_nodes(gx, pos, nodelist=group_0_nodes, node_color='red', node_shape='s')
+nx.draw_networkx_nodes(gx, pos, nodelist=group_1_nodes, node_color='blue', node_shape='o')
+
+nx.draw_networkx_edges(gx, pos)
+nx.draw_networkx_labels(gx, pos)
+
+plt.show()
+plt.close()
+```
+
+Now our graph looks much more like we would like it to.
+
+### Some Basic Properties/Functions
+
+Obviously, we want to use our graphs for modeling purposes. Let's try a few basic commands. First, we can easily get the adjacency matrix that represents our graph using the `adjacency_matrix()` command; if we want it to look like a normal matrix (instead of a sparse matrix), then the command is `todense()` is necessary. Next, several of the problems in the book rely on determining the maximum matching set (matching is defined a set edges that have no two vertices in common; i.e., if there are $n$ edges in the set then there are, by definition, $2n$ unique vertices). Python quickly returns **one** set that would satisfy the maximum matching problem using the `bipartite.maximum_matching()` function. Note however, we can also check if other sets would satisfy maximum matching using the `is_maximal_matching()` function.
+
+```{python}
+nx.adjacency_matrix(gx).todense()
+
+max_match = nx.bipartite.maximum_matching(gx)
+max_match
+
+nx.is_maximal_matching(gx, {'B':'2', 'D':'3', 'C':'4', 'A':'1'}) #check a different match
+
+```
+
+There are many more of these types of functions included in the `igraph` and `networkx` packages. If you are planning on using graphs for modeling, it is good to familiarize yourself with the functions and various other properties of graphs.
+
+## Creating Directed Graphs
+
+The other major type of graph that you may wish to work with is a directed graph. In `igraph` in Python the direction of an edge is specified using the `>` sign. For example, specifying `A-> B` would yield $A\rightarrow B$, specifying `A <- B` would yield $A \leftarrow B$, and `A <-> B` gives $A \leftrightarrow B$. 
+
+In the book, details are given as to how the maximum matching problem can be used by solving a maximum flow problem on a directed graph. To do this, we begin at a source node `s` and travel to a target node `t` while passing through both sides of the bipartite graph. Let's recreate our previous undirected graph in a directed fashion to solve the maximum matching problem using the maximum flow:
+
+```{python}
+dirgraph = ig.Graph.Formula('s->A:B:C:D, A->1:2:4, B->1:2, C->1:4, D->3:4, 1:2:3:4->t')
+dirgraphx = dirgraph.to_networkx()
+dirgraphx = nx.relabel_nodes(dirgraphx, nx.get_node_attributes(dirgraphx, 'name'))
+
+nx.draw(dirgraphx, with_labels = True)
+plt.show()
+plt.close()
+
+```
+
+As with our graph earlier, the layout is initially poor. If we want a layered layout, we can use the Sugiyama algorithm to produce the appropriate $x,y$ coordinates for our vertices. Let's store those coordinate in a new variable called `xycoords` using:
+
+```{python}
+xycoords = {list(dirgraphx.nodes())[k]: dirgraph.layout_sugiyama().coords[k] for k in range(10)} #this creates a dictionary that looks like {n_1:[x_1,y_1], n_2:[x_2,y_2]...}
+```
+
+### Rotating a Graph
+
+We know that our `xycoords` has the coordinates for each vertex. If we want to rotate the graph to a particular orientation, we can use the following transformations. Note that the Sugiyama layout is coming from igraph which also has the transformation functions (mirror, rotate); the new layout is then taken to a dict for networkx:
+
+```{python}
+nx.draw(dirgraphx, pos = xycoords, with_labels = True) #top to bottom
+plt.show()
+plt.close()
+
+sugi = dirgraph.layout_sugiyama()
+sugi.mirror(1) #mirror on y axis
+xycoords = {list(dirgraphx.nodes())[k]: sugi.coords[k] for k in range(10)}
+
+nx.draw(dirgraphx, pos = xycoords, with_labels = True) #top to bottom
+plt.show()
+plt.close()
+
+sugi.rotate(90) #90 degree rotation
+xycoords = {list(dirgraphx.nodes())[k]: sugi.coords[k] for k in range(10)}
+
+nx.draw(dirgraphx, pos = xycoords, with_labels = True) #top to bottom
+plt.show()
+plt.close()
+```
+
+### Maximum Flow
+
+It is simple to get the maximum flow from our directed graph:
+
+```{python}
+nx.set_edge_attributes(dirgraphx, 1, 'capacity') #need to have the edge capacities set in networkx
+mf_result = nx.maximum_flow(dirgraphx, 's', 't')
+print(mf_result)
+```
+
+The first value in the return above (4), shows the maximum flow through the network. The remainder of the returned value shows how much 'capacity' flowed through each edge. If we break down the first chunk of the edge results it looks like 's': {'A': 1, 'B': 1, 'C': 1, 'D': 1}. The 's' is originating node. If we look at the first element of the set/dict it is 'A': 1. So if we 'distribute' the 's' we could think of this as looking 's':'A':1 which you would read as FROM NODE : TO NODE : CAPACITY. As a second example, if we look at the second chunk of the return, it is  'A': {'1': 0, '2': 0, '4': 1}, and, looking at the first element of this ('1': 0), you get 'A' : '1': 0 when you distribute the 'A'. That is then iterpreted as FROM NODE 'A' : TO NODE '1' : CAPACITY 0. 
+ 
+ 
+
+```{python}
+
+max_graphx = dirgraphx.copy()
+
+for k,v in mf_result[1].items():
+   for k2, v2 in v.items():
+     if v2 == 0: max_graphx.remove_edge(k, k2)
+
+nx.draw(max_graphx, xycoords, with_labels = True)
+plt.show()
+plt.close()
+```
+
+Let's check that this is actually a solution to maximum matching by using the `is_maximal_matching()` function. To do this we first have to remove the unwanted nodes $s,t$ and get the appropriate edges.
+
+```{python}
+
+max_graphx.remove_nodes_from(['s','t'])
+
+nx.is_maximal_matching(max_graphx.to_undirected(), {'D':'3','C':'1','A':'4','B':'2'}) #note the conversion to an undirected graph
+```
+
+As we would expect, the maximum flow through our directed graph is indeed a maximum matching set for our bipartite graph. Can you explain what the logic is behind using maximum flow to solve bipartite matching? 
+
+## Minimum Vertex Cover
+
+To find the minimum vertex covers of a graph, we can look at the largest independent vertex set (the largest set of nodes that shares no edges). It can be shown that a largest independent vertex set is the complement of a minimum vertex cover. igraph has the `largest_independent_vertex_sets()` function, which we can then use to get minimum vertex covers like so: 
+
+```{python}
+#networkx doesn't have the largest independent vertex set command us iGraph
+g = ig.Graph.Formula('v1-v5, v1-v3, v5-v2, v5-v6, v3-v6, v6-v4, v4-v7, v6-v7, v7-v8, v8-v2') #this is figure 8.20 in the book
+
+livs = [g.vs['name'][x] for x in g.largest_independent_vertex_sets()[0]]
+np.setdiff1d(g.vs['name'], livs)
+
+#use the igraph method for creation
+g = ig.Graph.Formula('A-B-C-D-A, E-A:B:C:D, F-G-H-I-F, J-F:G:H:I, K-L-M-N-K, O-K:L:M:N, P-Q-R-S-P, T-P:Q:R:S, B-F, E-J, C-I, L-T, O-T, M-S, C-P, C-L, I-L, I-P')
+
+g.largest_independent_vertex_sets() #our graph has many largest independent vertex sets, just pick one (index = 3) and look at the minimum vertex cover 
+
+livs = [g.vs['name'][x] for x in g.largest_independent_vertex_sets()[3]]
+np.setdiff1d(g.vs['name'], livs)
+```
+
+
+## Some Othe Useful Commands
+
+As mentioned before, there are **many** different commands in these network packages. Here a few more that might come in handy!
+
+### Degree Distribution and Path Lengths
+
+Degree distributions and path length are often of interest when studying a particular graph. Here's how to get that information for a graph:
+
+```{python}
+nx.degree(dirgraphx)
+nx.degree_histogram(dirgraphx) #degree distribution
+
+nx.floyd_warshall_numpy(dirgraphx) #all shortest pairwise vertex distances
+nx.floyd_warshall_numpy(dirgraphx.to_undirected()) #undirected graph for comparison
+
+nx.shortest_path(dirgraphx,'s','4') # specific shortest path from s -> 4.
+nx.shortest_path_length(dirgraphx,'s','4') # length of the shortest path
+```
+
+### Adding Weights to Edges
+
+Below is an example of adding weights to edges of a graph, and, subsequently plotting the graph in a way that shows the weight and changes the width of the arrow based on the weight.
+```{python}
+dirgraphx.edges()
+
+e_weights = dict(zip(list(dirgraphx.edges()), np.concatenate(([1,1,1,1],np.repeat(3,9),[1,1,1,1]))))
+
+nx.set_edge_attributes(dirgraphx, e_weights , 'weight')
+nx.is_weighted(dirgraphx)
+
+dirgraphx['D']['3'] #note the edges now attributes! this is the edge D -> 3
+
+nx.draw(dirgraphx, xycoords, with_labels = True)
+junk = nx.draw_networkx_edge_labels(dirgraphx, xycoords, edge_labels = nx.get_edge_attributes(dirgraphx, 'weight'))
+
+plt.show()
+plt.close()
+```
+
