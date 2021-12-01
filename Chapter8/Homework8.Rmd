@@ -191,7 +191,7 @@ names(nodeValues) <- players
 E(basketball)$weight <- nodeValues[originatingNode]
 ```
 
-Now that the edges are weighted according how many home runs we can expect, we can use a search for a max bipartite match to give a solution:
+Now that the edges are weighted according how many points we can expect, we can use a search for a max bipartite match to give a solution:
 
 ```{r}
 max_bipartite_match(basketball)

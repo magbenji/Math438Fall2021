@@ -1,0 +1,264 @@
+---
+title: "Chapter 8 Homework"
+author: "Ben Ridenhour"
+date: "`r format(Sys.Date(), '%d-%b-%y')`"
+output:
+  html_notebook:
+    toc: yes
+---
+
+This homework revolves around the softball manager's problem state in table 8.7 of the book (actually, it's a basketball team in this case, but puh-TAY-toe, puh-TAH-toe). Specifically, the problem asks for a basketball manager to assign players to positions they are comfortable playing. There are 8 players and 5 positions. The data are as follows:
+
+|Player|Position|Player|Position|
+|:-----|:-------|:-----|:-------|
+| Alice | 1,2| Bonnie| 1|
+|Courtney | 1,2| Deb| 3,4,5|
+|Ellen | 2| Fay| 1|
+|Gladys | 3,4| Hermione   |2,3|
+
+
+----------------
+
+Part 1
+
+You were asked to create a bipartite graph of the problem. Then you were asked to plot the network using a bipartite layout, with different shapes for the 2 partitions, and rotated so the players are in the left hand column. Here's how to do this:
+
+```{python}
+import igraph as ig
+import networkx as nx
+import matplotlib.pyplot as plt
+import numpy as np
+
+basketball = ig.Graph.Formula('Alice-1:2, Bonnie-1, Courtney-1:2, Deb-3:4:5, Ellen-2, Fay-1, Gladys-3:4, Hermione-2:3')
+
+basketballx = nx.Graph(basketball.to_networkx())
+basketballx = nx.relabel_nodes(basketballx, nx.get_node_attributes(basketballx,'name'))
+
+X, Y = nx.bipartite.sets(basketballx) #divide the graph into the 2 partitions X, Y
+X = dict.fromkeys(X, 0) #dictionary needed for setting attributes for vertices in X
+Y = dict.fromkeys(Y, 1) #dictionary needed for setting attributes for vertices in Y
+
+#set attributes for nodes like so:
+nx.set_node_attributes(basketballx,X,"bipartite")
+nx.set_node_attributes(basketballx,Y,"bipartite")
+
+group_0_nodes = [n for (n,group) in nx.get_node_attributes(basketballx,'bipartite').items() if group == 0]
+group_1_nodes = [n for (n,group) in nx.get_node_attributes(basketballx,'bipartite').items() if group == 1]
+
+#In order to get 2 shapes, you have plot the nodes separately
+pos = nx.bipartite_layout(basketballx, X)
+nx.draw_networkx_nodes(basketballx, pos, nodelist=group_0_nodes, node_color='red', node_shape='s', node_size=600)
+nx.draw_networkx_nodes(basketballx, pos, nodelist=group_1_nodes, node_color='blue', node_shape='o')
+
+nx.draw_networkx_edges(basketballx, pos)
+nx.draw_networkx_labels(basketballx, pos)
+
+plt.show()
+plt.close()
+
+```
+
+Note that it took some manipulation of the graphics parameters to make things look appropriate.
+
+--------------------------
+
+Part 2
+
+In the second part of the homework, you are simply asked to find a maximum matching set. This is done simply by:
+
+```{python}
+max_match = nx.bipartite.maximum_matching(basketballx)
+max_match
+```
+
+We can see that Bonnie, Ellen, and Fay are all left on the bench. The players listed in order of position are: Alice, Courtney, Hermione, Gladys, and Deb. We also see that there is a solution to the "manager's problem" and the matching size is 5, i.e., all positions are filled.
+
+------------------------
+
+Part 3
+
+Next you were asked to create an appropriate directed graph for the softball manager's problem and plot it. This means that you have to add direction to the graph and add a "source" node (s) and a target node (t). Here is how you would do that:
+
+```{python}
+directed = ig.Graph.Formula('s->Alice:Bonnie:Courtney:Deb:Ellen:Fay:Gladys:Hermione, Alice->1:2, Bonnie->1, Courtney->1:2, Deb->3:4:5, Ellen->2, Fay->1, Gladys->3:4, Hermione->2:3, t<-1:2:3:4:5')
+                            
+directedx = directed.to_networkx()
+directedx = nx.relabel_nodes(directedx, nx.get_node_attributes(directedx,'name'))
+
+
+sugi = directed.layout_sugiyama()
+sugi.rotate(-90) #mirror on y axis
+xycoords = {list(directedx.nodes())[k]: sugi.coords[k] for k in range(16)}
+
+nx.draw(directedx, pos = xycoords, with_labels = True) #top to bottom
+plt.show()
+plt.close()
+
+```
+
+------------------------
+
+Part 4
+
+Next you were asked to use the maximum flow method of solving the manager's problem. To do that, all we need to do is use the `max_flow()` command and get the flow element:
+
+```{python}
+nx.set_edge_attributes(directedx, 1, 'capacity') #need to have the edge capacities set in networkx
+mf_result = nx.maximum_flow(directedx, 's', 't')
+print(mf_result)
+
+```
+
+The assignments according to the maximum flow algorithm are (in order of position): Fay, Courtney, Hermione, Gladys, and Deb with Alice, Bonnie, and Ellen on the bench. So, we can see that the solution according to this method was different.
+
+--------------------------
+
+Part 5
+
+This question highlights how the solutions returned by are R are dependent on the order in which you entered the edges/vertices of the graph. You are asked, relative to the number of edges, how many possible orders are there to enter a graph? It is fairly easy to see that the number of orders is simply $(|E(G)|)!$. For example, if you have 3 edges such that $E(G) = \{e_1, e_2, e_3\}$, we could enter these as $\{e_1, e_2, e_3\}$,  $\{e_1, e_3, e_2\}$, $\{e_2, e_1, e_3\}$, $\{e_2, e_3, e_1\}$, $\{e_3, e_1, e_2\}$, or $\{e_3, e_2, e_1\}$, so there are 6 (= 3!) orders of entry for a graph with 3 edges. Thus it is easy to calculate the number of orders for our graph in 8.1 by doing:
+
+```{python}
+np.math.factorial(basketball.ecount())
+```
+
+That is a lot of combinations to check!
+
+---------------------------
+
+Part 6
+
+Because we might want to convince ourselves that we've found many (all?) of the solutions to the manager's problem, we can randomly reorder our graph and check for new solutions. You are asked to do this for 1000 randomizations. It was suggested to you to use the adjacency matrix to do this, let's use this sage advice!
+
+First, let's look at the adjacency matrix:
+```{python}
+nx.adjacency_matrix(basketballx).todense()
+```
+
+Looking at the adjacency matrix, we can see that the order of the row and columns was determined by order of edge entry. Thus, if we simply randomize the row-column order, we get a new version of our graph! Let's make a function that does this:
+
+```{python}
+def randomizeGraph(graph):
+  A = nx.adjacency_matrix(graph).todense()
+  cols = A.shape[1]
+  n = np.random.choice(range(cols), size = cols, replace = False)
+  out = nx.from_numpy_matrix(A[:,n][n,:])
+  X, Y = nx.bipartite.sets(out) #divide the graph into the 2 partitions X, Y
+  X = dict.fromkeys(X, 0) #dictionary needed for setting attributes for vertices in X
+  Y = dict.fromkeys(Y, 1) #dictionary needed for setting attributes for vertices in Y
+  
+  #set attributes for nodes like so:
+  nx.set_node_attributes(out,X,"bipartite")
+  nx.set_node_attributes(out,Y,"bipartite")
+  
+  out = nx.relabel_nodes(out, dict(zip(range(cols),np.array(graph.nodes())[n])))
+  
+  return(out)
+
+```
+
+Now we simply need to create a loop that looks for new solutions to the manager's problem. Here's how I would do this:
+
+```{python}
+import pandas as pd
+import hashlib as hl
+import json as json
+
+max_match = nx.bipartite.maximum_matching(basketballx)
+max_match
+
+players = ["Alice","Bonnie","Courtney","Deb","Ellen","Fay","Gladys","Hermione"]
+
+sol = pd.DataFrame(columns = players)
+sol = sol.append({p:max_match.get(p) for p in players}, ignore_index = True)
+sol['Iter'] = 0
+
+def hashIt(x): return(hl.md5(json.dumps(x, sort_keys = True).encode('utf-8')).hexdigest())
+
+digests = np.array([hashIt(max_match)]) #for speed/convenience I'll keep track of hashes for data points to look for new values
+
+for i in np.arange(1,1001):
+  newGraph = randomizeGraph(basketballx)
+  newsol = nx.bipartite.maximum_matching(newGraph)
+  dn = hashIt(newsol)
+  if dn not in digests:
+    digests = np.append(digests, dn)
+    newdict = {p:newsol.get(p) for p in players}
+    newdict['Iter'] = i
+    sol = sol.append(newdict, ignore_index = True)
+    
+  
+
+```
+
+To see how many different solution Python found in our randomizations we can simply execute:
+
+```{python}
+sol.shape[0]
+```
+
+It is also informative to look at how often we are finding a solution:
+
+```{python}
+plt.plot(sol['Iter'],np.arange(sol.shape[0]))
+plt.xlabel('Iteration')
+plt.ylabel('Number of Solutions Found')
+plt.show()
+plt.close()
+```
+We can definitely see that we are getting diminishing returns on our search efforts. In fact, if we increase the number of permutations to higher numbers, we will not find more solutions for this problem. If you look at the solutions, you will see (or perhaps you noticed beforehand) that Deb must play position 5, which means Gladys must play 4 and Hermione must play 3. So really, you are only searching for which players can go in the 1 or 2 slot. 
+
+-------------------------
+
+Part 7
+
+The final part of the problem gives you the expected number of points a player scores per game. Here are those data:
+
+|Player|HRs|Player|HRs|
+|:-----|:--:|:-----|:--:|
+|Alice|10|Bonnie|5|
+|Courtney|8.5|Deb|2|
+|Ellen|5|Fay|12|
+|Gladys|6|Hermione|6.2|
+
+
+To solve this problem, we create the weighted network that corresponds to appropriate number of points per individual. Here, I just manually assign the weights to the edges. If you want to see the edges (so you know what order to assign weights), just call the `.edges()` method. 
+
+```{python}
+basketballx.edges()
+e_weights = dict(zip(list(basketballx.edges()),np.array([10,10,5,8.5,12,8.5,5,6.2,2,2,2,6,6.2,6])))
+nx.set_edge_attributes(basketballx, e_weights , 'weight')
+```
+
+Now that the edges are weighted according how many points we can expect, we can use a search for a max bipartite match to give a solution. Note that in `networkx` we must specify that we are interested in a *weighted* match by using `max_weight_matching()`. 
+
+```{python}
+max_match = nx.max_weight_matching(basketballx, maxcardinality=True)
+max_match
+
+chosen_weights = [nx.path_weight(basketballx, e, 'weight') for e in max_match]
+np.sum(chosen_weights)
+```
+
+With the weighted version of the network, the maximum bipartite match becomes (in order of position): Fay, Alice, Hermione, Gladys, and Deb with Bonnie, Courtney, and Ellen on the bench. Note that the sum of `chosen_weights` value gives you the expected number of points, or ~36.2. As mentioned earlier, we were only really choosing players for positions 1 and 2 in this problem. Clearly, looking at the points table, Fay (12 pts.) and Alice (10 pts) are clear choices over Bonnie (5 pts.), Courtney (8.5 pts), and Ellen (5 pts).
+
+We can also check this against our solutions that we found via randomization. Let's try this:
+
+```{python}
+import numpy.linalg as la
+
+playing = sol.copy().iloc[:,0:8]
+playing = playing.to_numpy().astype('float')
+playing = np.nan_to_num(playing) #change nan to 0
+playing = (playing > 0)*1. #change to binary to indicate 0 = on bench, 1 = in lineup
+
+nodeValues = np.array([10,5,8.5,2,5,12,6,6.2])
+
+expectedPts = playing @ nodeValues
+np.max(expectedPts) #maximum value
+np.argmax(expectedPts) #indices where the maximum occurs
+np.argmax(expectedPts).size #number of time the maximum occurs
+```
+
+We can see this produces the same value as our previous method. However, by doing this using our randomizations, we could have potentially observed cases where multiple lineups produces similar output. (We can also order the lineups by their potential productivity.)
+
+What if we wanted to do this using our max flow methods? Clearly, we should be able to set up this problem using a directed graph. How do you think you would do this? 
